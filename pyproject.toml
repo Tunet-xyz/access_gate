@@ -1,0 +1,85 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["access_gate*"]
+
+[tool.setuptools.package-data]
+access_gate = ["py.typed"]
+
+[project]
+name = "AccessGate"
+version = "0.1.0a1"
+description = "Composable, default-deny authorization for Python applications."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+keywords = ["authorization", "access-control", "rbac", "abac", "security", "policy"]
+authors = [
+  { name = "Tunet Ltd", email = "alex@tunet.xyz" },
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Security",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = []
+
+[project.optional-dependencies]
+django = ["Django>=4.2"]
+dev = [
+  "Django>=4.2",
+  "bandit>=1.7",
+  "build>=1.2",
+  "mypy>=1.10",
+  "pip-audit>=2.7",
+  "pytest>=8.0",
+  "pytest-cov>=5.0",
+  "ruff>=0.5",
+  "setuptools>=68",
+  "wheel",
+]
+
+[project.urls]
+Homepage = "https://github.com/Tunet-xyz/access_gate"
+Documentation = "https://github.com/Tunet-xyz/access_gate#readme"
+Repository = "https://github.com/Tunet-xyz/access_gate"
+Issues = "https://github.com/Tunet-xyz/access_gate/issues"
+Changelog = "https://github.com/Tunet-xyz/access_gate/blob/main/CHANGELOG.md"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q --tb=short"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["B", "C4", "E", "F", "I", "UP", "W"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["access_gate"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+packages = ["access_gate"]
+mypy_path = "src"
+
+[tool.coverage.run]
+source = ["access_gate"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 85
