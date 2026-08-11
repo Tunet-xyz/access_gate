@@ -1,0 +1,240 @@
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from access_gate.mcp.server import (
+    call_tool,
+    get_prompt,
+    handle,
+    list_prompts,
+    list_resources,
+    list_tools,
+    load_contract,
+    read_resource,
+)
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def valid_policy() -> dict[str, object]:
+    return {
+        "schema_version": "access_gate.policy.v1",
+        "type": "attribute_policy",
+        "name": "department",
+        "actions": ["document.read"],
+        "match_effect": "allow",
+        "on_no_match": "deny",
+        "on_indeterminate": "deny",
+        "condition": {
+            "type": "comparison",
+            "operator": "eq",
+            "left": {"source": "subject", "path": "attributes.department"},
+            "right": {"source": "resource", "path": "attributes.department"},
+        },
+    }
+
+
+def test_repository_and_packaged_contracts_are_identical() -> None:
+    repository_contract = json.loads((ROOT / "mcp" / "agent-contract.json").read_text())
+
+    assert repository_contract == load_contract()
+
+
+def test_initialize_advertises_resources_tools_and_prompts() -> None:
+    response = handle(
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        load_contract(),
+    )
+
+    assert response is not None
+    result = response["result"]
+    assert result["protocolVersion"] == "2025-06-18"
+    assert set(result["capabilities"]) == {"resources", "tools", "prompts"}
+    assert result["serverInfo"]["name"] == "access-gate-public-contract-mcp"
+
+
+def test_resources_include_contract_schema_and_guidance() -> None:
+    contract = load_contract()
+    resources = list_resources(contract)["resources"]
+    uris = {resource["uri"] for resource in resources}
+
+    assert "opensource://access_gate/agent-contract" in uris
+    assert "opensource://access_gate/policy-schema" in uris
+    assert "opensource://access_gate/abac-semantics" in uris
+
+    schema_resource = read_resource(contract, "opensource://access_gate/policy-schema")
+    schema = json.loads(schema_resource["contents"][0]["text"])
+    assert schema["properties"]["schema_version"]["const"] == "access_gate.policy.v1"
+
+    contract_resource = read_resource(contract, "opensource://access_gate/agent-contract")
+    overview_resource = read_resource(contract, "opensource://access_gate/overview")
+    model_resource = read_resource(contract, "opensource://access_gate/authorization-models")
+    assert json.loads(contract_resource["contents"][0]["text"])["offering"]["id"] == "access_gate"
+    assert "# AccessGate" in overview_resource["contents"][0]["text"]
+    assert "rbac" in json.loads(model_resource["contents"][0]["text"])
+
+
+def test_unknown_resource_is_rejected_as_an_invalid_parameter() -> None:
+    response = handle(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "resources/read",
+            "params": {"uri": "opensource://access_gate/missing"},
+        },
+        load_contract(),
+    )
+
+    assert response is not None
+    assert response["error"]["code"] == -32602
+
+
+def test_tool_catalog_contains_real_validation_tools() -> None:
+    names = {tool["name"] for tool in list_tools(load_contract())["tools"]}
+
+    assert {"validate_policy_document", "list_builtin_operators", "get_policy_schema"} <= names
+
+
+def test_policy_validator_accepts_objects_and_json_strings() -> None:
+    contract = load_contract()
+
+    object_result = call_tool(contract, "validate_policy_document", {"policy": valid_policy()})
+    string_result = call_tool(
+        contract,
+        "validate_policy_document",
+        {"policy": json.dumps(valid_policy())},
+    )
+
+    assert object_result["structuredContent"]["valid"] is True
+    assert string_result["structuredContent"]["valid"] is True
+    assert object_result["structuredContent"]["policy"] == valid_policy()
+
+
+def test_policy_validator_returns_a_structured_validation_error() -> None:
+    result = call_tool(load_contract(), "validate_policy_document", {"policy": {}})
+
+    assert result["isError"] is True
+    assert result["structuredContent"]["valid"] is False
+    assert result["structuredContent"]["errors"]
+
+    wrong_type = call_tool(load_contract(), "validate_policy_document", {"policy": 1})
+    assert wrong_type["structuredContent"]["valid"] is False
+
+
+def test_operator_and_schema_tools_return_runtime_values() -> None:
+    contract = load_contract()
+
+    operators = call_tool(contract, "list_builtin_operators", {})
+    schema = call_tool(contract, "get_policy_schema", {})
+
+    assert {"eq", "intersects", "exists", "not_exists"} <= set(
+        operators["structuredContent"]["operators"]
+    )
+    assert schema["structuredContent"]["schema"]["title"] == "AccessGate ABAC Policy v1"
+
+
+def test_contract_tools_return_review_first_guidance() -> None:
+    result = call_tool(
+        load_contract(),
+        "map_integration",
+        {"framework": "Django", "authorizationGoals": "Protect incidents"},
+    )
+
+    assert result["isError"] is False
+    assert result["structuredContent"]["executionMode"] == "contract"
+    assert "reviewed authorization design" in result["content"][0]["text"]
+
+
+def test_prompt_arguments_are_substituted() -> None:
+    prompt = get_prompt(load_contract(), "agent_onboarding", {"user_goal": "protect reports"})
+
+    assert "protect reports" in prompt["messages"][0]["content"]["text"]
+    assert {prompt["name"] for prompt in list_prompts(load_contract())["prompts"]} == {
+        "agent_onboarding",
+        "policy_review",
+    }
+
+    with pytest.raises(KeyError):
+        get_prompt(load_contract(), "missing", {})
+
+
+def test_unknown_tool_is_rejected() -> None:
+    with pytest.raises(KeyError):
+        call_tool(load_contract(), "missing", {})
+
+
+@pytest.mark.parametrize(
+    ("method", "params", "result_key"),
+    [
+        ("resources/list", {}, "resources"),
+        ("tools/list", {}, "tools"),
+        ("prompts/list", {}, "prompts"),
+        (
+            "prompts/get",
+            {"name": "agent_onboarding", "arguments": {"user_goal": "reports"}},
+            "messages",
+        ),
+        (
+            "tools/call",
+            {"name": "list_builtin_operators", "arguments": {}},
+            "structuredContent",
+        ),
+    ],
+)
+def test_handle_routes_supported_methods(
+    method: str,
+    params: dict[str, object],
+    result_key: str,
+) -> None:
+    response = handle(
+        {"jsonrpc": "2.0", "id": 10, "method": method, "params": params},
+        load_contract(),
+    )
+
+    assert response is not None
+    assert result_key in response["result"]
+
+
+def test_notifications_and_unknown_methods_follow_json_rpc_rules() -> None:
+    contract = load_contract()
+
+    notification = handle({"jsonrpc": "2.0", "method": "notifications/initialized"}, contract)
+    unknown = handle({"jsonrpc": "2.0", "id": 3, "method": "missing"}, contract)
+
+    assert notification is None
+    assert unknown is not None
+    assert unknown["error"]["code"] == -32601
+
+
+def test_source_checkout_stdio_server_smoke() -> None:
+    messages: list[dict[str, Any]] = [
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": "validate_policy_document", "arguments": {"policy": valid_policy()}},
+        },
+    ]
+    input_text = "\nnot json\n" + "\n".join(json.dumps(message) for message in messages) + "\n"
+
+    completed = subprocess.run(
+        [sys.executable, str(ROOT / "mcp" / "server.py")],
+        cwd=ROOT,
+        input=input_text,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=20,
+    )
+    responses = [json.loads(line) for line in completed.stdout.splitlines()]
+
+    assert responses[0]["error"]["code"] == -32700
+    assert responses[1]["result"]["serverInfo"]["name"] == "access-gate-public-contract-mcp"
+    assert responses[2]["result"]["structuredContent"]["valid"] is True

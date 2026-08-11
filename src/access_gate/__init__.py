@@ -1,5 +1,30 @@
 """AccessGate: composable, default-deny authorization for Python."""
 
+from .abac import (
+    POLICY_SCHEMA_VERSION,
+    ActionAttribute,
+    AllOf,
+    AnyOf,
+    AttributePolicy,
+    AttributeRef,
+    AttributeSource,
+    Comparison,
+    Condition,
+    ConditionResult,
+    ConditionState,
+    ContextAttribute,
+    Literal,
+    Not,
+    OperatorRegistry,
+    PolicySchemaError,
+    ResourceAttribute,
+    SubjectAttribute,
+    attribute_policy_from_dict,
+    condition_from_dict,
+    dumps_policy,
+    load_policy_schema,
+    loads_policy,
+)
 from .engine import AuthorizationEngine, ErrorMode
 from .exceptions import AuthorizationDenied
 from .policies import (
@@ -21,26 +46,49 @@ from .strategies import DenyOverrides
 from .types import AuthorizationRequest, Decision, Effect, Resource, Subject
 
 __all__ = [
+    "ActionAttribute",
+    "AllOf",
     "AuditSink",
+    "AnyOf",
     "AuthenticatedPolicy",
+    "AttributePolicy",
+    "AttributeRef",
+    "AttributeSource",
     "AuthorizationDenied",
     "AuthorizationEngine",
     "AuthorizationRequest",
+    "Comparison",
+    "Condition",
+    "ConditionResult",
+    "ConditionState",
+    "ContextAttribute",
     "Decision",
     "DecisionStrategy",
     "DenyOverrides",
     "Effect",
     "ErrorMode",
     "FunctionPolicy",
+    "Literal",
     "MissEffect",
+    "Not",
+    "OperatorRegistry",
     "OwnerPolicy",
     "Policy",
+    "POLICY_SCHEMA_VERSION",
+    "PolicySchemaError",
     "Resource",
+    "ResourceAttribute",
     "ResourceResolver",
     "RolePolicy",
     "Subject",
+    "SubjectAttribute",
     "SubjectResolver",
     "TenantBoundaryPolicy",
+    "attribute_policy_from_dict",
+    "condition_from_dict",
+    "dumps_policy",
+    "load_policy_schema",
+    "loads_policy",
 ]
 
-__version__ = "0.1.0a1"
+__version__ = "0.2.0a1"

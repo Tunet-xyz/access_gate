@@ -17,6 +17,7 @@ View = TypeVar("View", bound=Callable[..., object])
 SubjectResolverFunction = Callable[[HttpRequest], Subject]
 ResourceResolverFunction = Callable[..., Resource | None]
 ContextResolverFunction = Callable[[HttpRequest], Mapping[str, object]]
+ActionAttributesResolverFunction = Callable[[HttpRequest, str], Mapping[str, object]]
 DenialHandler = Callable[[HttpRequest, Decision], object]
 
 
@@ -53,6 +54,14 @@ def default_context_resolver(request: HttpRequest) -> Mapping[str, object]:
     }
 
 
+def default_action_attributes_resolver(
+    request: HttpRequest,
+    action: str,
+) -> Mapping[str, object]:
+    del request, action
+    return {}
+
+
 def raise_permission_denied(request: HttpRequest, decision: Decision) -> object:
     del request
     raise PermissionDenied(decision.reason)
@@ -65,6 +74,9 @@ class DjangoAuthorizer:
     engine: AuthorizationEngine
     subject_resolver: SubjectResolverFunction = default_subject_resolver
     context_resolver: ContextResolverFunction = default_context_resolver
+    action_attributes_resolver: ActionAttributesResolverFunction = (
+        default_action_attributes_resolver
+    )
     denial_handler: DenialHandler = raise_permission_denied
 
     def require(
@@ -86,6 +98,7 @@ class DjangoAuthorizer:
                     action=action,
                     resource=resource,
                     context=self.context_resolver(request),
+                    action_attributes=self.action_attributes_resolver(request, action),
                 )
                 decision = self.engine.decide(authorization_request)
                 if not decision.allowed:

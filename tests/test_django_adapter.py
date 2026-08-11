@@ -8,7 +8,13 @@ import pytest
 django = pytest.importorskip("django")
 from django.core.exceptions import PermissionDenied  # noqa: E402
 
-from access_gate import AuthorizationEngine, Resource, RolePolicy  # noqa: E402
+from access_gate import (  # noqa: E402
+    ActionAttribute,
+    AttributePolicy,
+    AuthorizationEngine,
+    Resource,
+    RolePolicy,
+)
 from access_gate.adapters.django import DjangoAuthorizer  # noqa: E402
 
 
@@ -70,3 +76,16 @@ def test_django_resolver_treats_a_string_role_as_one_exact_role() -> None:
         return "ok"
 
     assert view(request) == "ok"
+
+
+def test_django_adapter_can_resolve_action_attributes_for_abac() -> None:
+    authorizer = DjangoAuthorizer(
+        AuthorizationEngine([AttributePolicy(ActionAttribute("risk").less_than(3))]),
+        action_attributes_resolver=lambda request, action: {"risk": 2},
+    )
+
+    @authorizer.require("incident.read")
+    def view(request: Any) -> str:
+        return "ok"
+
+    assert view(django_request(roles=())) == "ok"

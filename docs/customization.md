@@ -29,6 +29,16 @@ Boundary policies should deny violations and abstain on success. Grant policies
 should allow a positive match and either deny or abstain on a miss, according to
 whether another grant is valid for the same action.
 
+Declarative policies can use `AttributePolicy`. Custom operands implement the
+`Operand` protocol; custom operators are registered on an `OperatorRegistry`
+instance supplied to a policy. The policy copies that registry, preventing
+later application mutation from changing an already-configured policy.
+
+Custom operators must be deterministic, side-effect free, quick to evaluate,
+and return a boolean. Exceptions become redacted indeterminate outcomes. Do not
+perform network or database access inside an operator; resolve those attributes
+before calling the engine.
+
 ## Decision strategies
 
 Implement `DecisionStrategy.combine(request, decisions)` to change composition.
@@ -46,3 +56,14 @@ layer converts the exception to a denial and records the operational failure.
 Adapters should be thin: obtain already-authenticated identity, resolve domain
 objects, call the engine once, and translate denial into the framework's normal
 403 mechanism. Business policy belongs in policies, not decorators or middleware.
+
+## Serialized policies
+
+`AttributePolicy.to_dict()`, `dumps_policy()`, `loads_policy()`, and
+`attribute_policy_from_dict()` use the versioned `access_gate.policy.v1` format.
+The parser rejects unknown fields, duplicate actions, invalid effect values,
+empty condition groups, unsafe operator names, and unregistered operators.
+
+The packaged schema is available through `load_policy_schema()`, the
+`opensource://access_gate/policy-schema` MCP resource, and the MCP
+`get_policy_schema` tool.

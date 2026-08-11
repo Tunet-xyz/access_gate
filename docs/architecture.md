@@ -2,8 +2,8 @@
 
 AccessGate separates authorization into five replaceable parts:
 
-1. **Resolvers** map application identities and objects into `Subject` and
-   `Resource` value objects.
+1. **Resolvers** map verified application identities and objects into `Subject`,
+   `Resource`, action-attribute, and context value mappings.
 2. **Policies** independently evaluate a subject/action/resource/context tuple.
 3. **A decision strategy** combines explicit policy results.
 4. **The engine** applies failure behaviour and produces the final decision.
@@ -17,24 +17,24 @@ an adapter.
 
 ```text
 application input
-      │
-      ▼
-subject/resource resolvers
-      │
-      ▼
+      |
+      v
+subject/resource/action/context resolvers
+      |
+      v
 AuthorizationRequest
-      │
-      ├── policy A ── allow / deny / abstain
-      ├── policy B ── allow / deny / abstain
-      └── policy N ── allow / deny / abstain
-      │
-      ▼
+      |
+      +-- policy A -- allow / deny / abstain
+      +-- policy B -- allow / deny / abstain
+      +-- policy N -- allow / deny / abstain
+      |
+      v
 decision strategy (default: deny overrides)
-      │
-      ▼
+      |
+      v
 audit sink
-      │
-      ▼
+      |
+      v
 Decision
 ```
 
@@ -54,3 +54,15 @@ only when the associated extension is genuinely non-security-critical.
 
 Applications should keep sensitive values out of decision reasons and metadata
 because audit sinks may persist them.
+
+## Authorization models
+
+RBAC is represented by exact `RolePolicy` rules. ABAC uses an
+`AttributePolicy` condition tree over subject, resource, action, and context
+namespaces. `OwnerPolicy` and `TenantBoundaryPolicy` cover common relationship
+and scope boundaries. All of them implement the same `Policy` protocol and are
+combined by the same decision strategy.
+
+ABAC conditions evaluate to `match`, `no_match`, or `indeterminate`. Missing
+attributes, unknown operators, and operator exceptions are indeterminate. A
+negation preserves indeterminate rather than converting it to a match.

@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0a1] - 2026-08-11
+
+### Added
+
+- First-class ABAC across subject, resource, action, and context namespaces.
+- Tri-state conditions with fail-closed missing-data and operator-error handling.
+- Exact equality, membership, set-relation, numeric, and existence operators.
+- Nested `AllOf`, `AnyOf`, and indeterminate-preserving `Not` conditions.
+- Policy-local custom operator registries and custom operand protocol support.
+- Versioned `access_gate.policy.v1` serialization and packaged JSON Schema.
+- Strict serialized-policy parsing with unknown-field and duplicate-action rejection.
+- Django action-attribute resolver support.
+- Dependency-free MCP server with resources, prompts, operator discovery, schema
+  discovery, and real read-only policy validation.
+
+### Changed
+
+- Package version advanced to `0.2.0a1`.
+
 ## [0.1.0a1] - 2026-08-11
 
 ### Added

@@ -1,6 +1,7 @@
 # AccessGate
 
-Composable, default-deny authorization for Python applications.
+Composable, default-deny RBAC, ABAC, and relationship-aware authorization for
+Python applications.
 
 AccessGate answers one question: **may this subject perform this action on
 this resource in this context?** It provides a small framework-neutral kernel,
@@ -21,6 +22,10 @@ trusted; AccessGate decides what that caller is allowed to do.
 - **Fail closed:** policy and audit failures deny access by default.
 - **Exact matching:** built-in role, action, owner, and tenant comparisons never
   use substring matching.
+- **Safe ABAC:** missing attributes and operator failures are indeterminate,
+  cannot be negated into access, and deny by default.
+- **No expression evaluation:** declarative policies use registered operators
+  and mapping-only attribute traversal—never Python `eval` or object traversal.
 - **Framework-neutral core:** no runtime dependencies and no ORM, token, or user
   model assumptions.
 - **Custom from day one:** policies, decision strategies, identity/resource
@@ -73,6 +78,51 @@ Tenant boundaries deliberately do not grant access. They abstain when the
 tenant matches and deny when it is missing or different; another policy must
 positively allow the action.
 
+## Attribute-based access control
+
+ABAC policies can compare subject, resource, action, and context attributes:
+
+```python
+from access_gate import (
+    ActionAttribute,
+    AllOf,
+    AttributePolicy,
+    ContextAttribute,
+    ResourceAttribute,
+    SubjectAttribute,
+)
+
+document_access = AttributePolicy(
+    AllOf(
+        SubjectAttribute("department").equals(ResourceAttribute("department")),
+        SubjectAttribute("clearance").greater_than_or_equal(
+            ResourceAttribute("classification")
+        ),
+        ActionAttribute("risk").less_than_or_equal(3),
+        ContextAttribute("device.trusted").equals(True),
+    ),
+    actions={"document.read"},
+    name="document_access",
+)
+```
+
+Conditions support `AllOf`, `AnyOf`, and `Not`, multi-valued attributes, exact
+membership and set relations, numeric comparisons, and explicit existence
+checks. `Not` preserves indeterminate outcomes, so a missing attribute never
+becomes a grant merely because a condition was negated.
+
+Policies serialize to the versioned `access_gate.policy.v1` format:
+
+```python
+from access_gate import dumps_policy, loads_policy
+
+document = dumps_policy(document_access)
+restored = loads_policy(document)
+```
+
+See [`docs/abac.md`](docs/abac.md) for the full data model, operator semantics,
+customization rules, JSON format, and rollout guidance.
+
 ## Application-defined policies
 
 Implement the `Policy` protocol directly or wrap a function:
@@ -92,6 +142,9 @@ policy = FunctionPolicy("published", published_incidents)
 A policy returns an allow/deny `Decision`, or `None` to abstain. Custom decision
 strategies can replace deny-overrides where a domain needs different semantics.
 
+For mixed RBAC/ABAC grants, configure alternative grant policies to abstain on
+a miss. Explicit boundary denials still override every grant.
+
 ## Django adapter
 
 ```python
@@ -110,6 +163,20 @@ def user_list(request):
 The default Django subject resolver only reads `pk`, `is_authenticated`,
 `access_gate_roles`, and `access_gate_attributes`. Real applications should
 normally provide a resolver that validates and maps their exact identity claims.
+The adapter also accepts custom context and action-attribute resolvers for ABAC.
+
+## MCP server
+
+AccessGate includes a dependency-free stdio MCP server:
+
+```bash
+accessgate-mcp
+```
+
+From a source checkout, run `python mcp/server.py`. The server exposes package
+capabilities, authorization-model guidance, the ABAC JSON Schema, exact built-in
+operator discovery, and read-only policy validation. It does not authenticate
+users, evaluate production identity data, or change application policy.
 
 ## Project boundary
 
@@ -117,7 +184,9 @@ AccessGate does not authenticate users, validate JWTs, secure sessions, query
 application permissions, or decide how tenants and resources are represented.
 Those are application and adapter responsibilities. See
 [`docs/architecture.md`](docs/architecture.md) and
-[`docs/customization.md`](docs/customization.md).
+[`docs/customization.md`](docs/customization.md). AccessGate provides its own
+policy format but does not claim wire compatibility with XACML, Cedar, Rego, or
+other policy languages.
 
 ## Development
 
@@ -130,4 +199,4 @@ pytest --cov=access_gate --cov-report=term-missing
 
 ## License
 
-MIT © Tunet Ltd.
+MIT (c) Tunet Ltd.

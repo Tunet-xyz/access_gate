@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Tunet-xyz/access_gate/schema/abac-policy-v1.json",
+  "title": "AccessGate ABAC Policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "type",
+    "name",
+    "actions",
+    "match_effect",
+    "on_no_match",
+    "on_indeterminate",
+    "condition"
+  ],
+  "properties": {
+    "schema_version": {"const": "access_gate.policy.v1"},
+    "type": {"const": "attribute_policy"},
+    "name": {"type": "string", "minLength": 1},
+    "actions": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        }
+      ]
+    },
+    "match_effect": {"enum": ["allow", "deny"]},
+    "on_no_match": {"enum": ["deny", "abstain"]},
+    "on_indeterminate": {"enum": ["deny", "abstain"]},
+    "condition": {"$ref": "#/$defs/condition"}
+  },
+  "$defs": {
+    "attributeReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "path"],
+      "properties": {
+        "source": {"enum": ["subject", "resource", "action", "context"]},
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^.]+(?:\\.[^.]+)*$"
+        }
+      }
+    },
+    "literal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value"],
+      "properties": {"value": {}}
+    },
+    "operand": {
+      "oneOf": [
+        {"$ref": "#/$defs/attributeReference"},
+        {"$ref": "#/$defs/literal"}
+      ]
+    },
+    "comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "operator", "left"],
+      "properties": {
+        "type": {"const": "comparison"},
+        "operator": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "left": {"$ref": "#/$defs/operand"},
+        "right": {"$ref": "#/$defs/operand"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"operator": {"enum": ["exists", "not_exists"]}}},
+          "then": {"not": {"required": ["right"]}},
+          "else": {"required": ["right"]}
+        }
+      ]
+    },
+    "conditionList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "conditions"],
+      "properties": {
+        "type": {"enum": ["all_of", "any_of"]},
+        "conditions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/condition"}
+        }
+      }
+    },
+    "negation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "condition"],
+      "properties": {
+        "type": {"const": "not"},
+        "condition": {"$ref": "#/$defs/condition"}
+      }
+    },
+    "condition": {
+      "oneOf": [
+        {"$ref": "#/$defs/comparison"},
+        {"$ref": "#/$defs/conditionList"},
+        {"$ref": "#/$defs/negation"}
+      ]
+    }
+  }
+}

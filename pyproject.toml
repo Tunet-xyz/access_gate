@@ -7,11 +7,11 @@ where = ["src"]
 include = ["access_gate*"]
 
 [tool.setuptools.package-data]
-access_gate = ["py.typed"]
+access_gate = ["py.typed", "mcp/*.json", "schema/*.json"]
 
 [project]
 name = "AccessGate"
-version = "0.1.0a1"
+version = "0.2.0a1"
 description = "Composable, default-deny authorization for Python applications."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -55,6 +55,9 @@ Repository = "https://github.com/Tunet-xyz/access_gate"
 Issues = "https://github.com/Tunet-xyz/access_gate/issues"
 Changelog = "https://github.com/Tunet-xyz/access_gate/blob/main/CHANGELOG.md"
 
+[project.scripts]
+accessgate-mcp = "access_gate.mcp.server:main"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
@@ -82,4 +85,4 @@ branch = true
 
 [tool.coverage.report]
 show_missing = true
-fail_under = 85
+fail_under = 90

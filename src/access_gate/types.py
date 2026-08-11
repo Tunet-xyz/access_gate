@@ -45,6 +45,7 @@ class AuthorizationRequest:
     action: str
     resource: Resource | None = None
     context: Mapping[str, object] = field(default_factory=dict)
+    action_attributes: Mapping[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

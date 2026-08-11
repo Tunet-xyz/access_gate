@@ -1,0 +1,133 @@
+# Attribute-Based Access Control
+
+AccessGate ABAC evaluates a condition tree over four namespaces:
+
+| Namespace | Canonical contents | Convenience factory |
+| --- | --- | --- |
+| Subject | `id`, `authenticated`, `roles`, `attributes` | `SubjectAttribute(path)` |
+| Resource | `id`, `kind`, `attributes` | `ResourceAttribute(path)` |
+| Action | `name`, `attributes` | `ActionAttribute(path)` |
+| Context | Application-provided environment mapping | `ContextAttribute(path)` |
+
+Convenience factories select the application-defined `attributes` mapping.
+Use `AttributeRef` for canonical fields such as `subject.authenticated`,
+`resource.kind`, or `action.name`.
+
+Attribute paths traverse mappings only. AccessGate never calls `getattr`,
+properties, descriptors, or arbitrary expressions while resolving a path.
+
+## Condition outcomes
+
+Every condition returns one of three states:
+
+- `match`: the condition is positively satisfied.
+- `no_match`: the condition was evaluated and is false.
+- `indeterminate`: required data is missing or evaluation could not be completed
+  safely.
+
+An `AttributePolicy` denies indeterminate results by default. `Not` leaves an
+indeterminate result indeterminate; it never turns missing data or an operator
+failure into a match.
+
+`AllOf` returns `no_match` if any child is a definite no-match, otherwise
+indeterminate if any child is indeterminate. `AnyOf` returns `match` if any child
+matches, otherwise indeterminate if any child is indeterminate.
+
+## Built-in operators
+
+| Operator | Meaning |
+| --- | --- |
+| `eq`, `neq` | Type-aware equality or inequality; numeric int/float values interoperate, booleans remain distinct. |
+| `in`, `not_in` | Exact membership of the left scalar in the right collection. |
+| `contains`, `not_contains` | Exact membership of the right scalar in the left collection. |
+| `intersects` | At least one exact value appears in both collections. |
+| `subset_of`, `superset_of` | Exact collection inclusion. |
+| `gt`, `gte`, `lt`, `lte` | Numeric comparison excluding booleans and strings. |
+| `exists`, `not_exists` | Explicit presence or absence checks. |
+
+Strings are not treated as collections. Consequently, `"admin" in
+"administrator"` and `"administrator" contains "admin"` are false rather than
+substring matches. Register an explicitly named custom operator if a domain
+requires different semantics.
+
+## Grant and boundary policies
+
+An allow policy grants on a match and denies a no-match by default:
+
+```python
+policy = AttributePolicy(
+    SubjectAttribute("clearance").greater_than_or_equal(
+        ResourceAttribute("classification")
+    ),
+    actions={"document.read"},
+)
+```
+
+Set `on_no_match=MissEffect.ABSTAIN` when another independent grant is valid.
+
+A deny boundary denies on a match and abstains on a no-match by default:
+
+```python
+blocked_country = AttributePolicy(
+    ContextAttribute("country").equals("blocked"),
+    match_effect=Effect.DENY,
+    name="blocked_country",
+)
+```
+
+The engine's default deny-overrides strategy means a matching boundary wins over
+RBAC, ABAC, ownership, or other grants.
+
+## Custom operators
+
+Operators are local to a registry and are copied into the policy:
+
+```python
+registry = OperatorRegistry()
+registry.register("same_prefix", same_prefix)
+
+policy = AttributePolicy(
+    SubjectAttribute("cost_center").compare(
+        "same_prefix", ResourceAttribute("cost_center")
+    ),
+    operators=registry,
+)
+```
+
+Names must use lowercase letters, digits, and underscores. `exists` and
+`not_exists` are reserved. Do not use custom operators for I/O, authentication,
+token verification, database queries, or mutable application state. Resolve and
+validate those facts before authorization.
+
+## Serialized policy format
+
+`AttributePolicy.to_dict()` emits a complete `access_gate.policy.v1` document.
+`dumps_policy()` and `loads_policy()` provide JSON round-tripping. The strict
+parser rejects unknown fields, duplicate actions, invalid condition shapes, and
+operators absent from the supplied registry.
+
+The JSON Schema is packaged at `schema/abac-policy-v1.json` and available from
+`load_policy_schema()` and the AccessGate MCP server.
+
+Custom operators remain code and are not embedded in a policy document. A host
+must explicitly supply the required registry when loading such a policy.
+
+## Attribute provenance
+
+Treat each attribute as a security input:
+
+1. Verify identity and tokens before constructing a `Subject`.
+2. Obtain resource attributes from an authoritative, tenant-scoped source.
+3. Define action attributes in trusted application configuration.
+4. Derive context attributes through a reviewed adapter; do not trust forwarded
+   headers without a validated proxy boundary.
+5. Normalize identifiers and types once at the resolver boundary.
+6. Avoid placing raw secrets or personal data in decision reasons or metadata.
+
+## Rollout
+
+Before enforcement, run representative decisions in shadow mode and compare
+AccessGate outcomes with the existing authorization path. Exercise missing and
+malformed attributes, cross-tenant resources, exact action names, custom
+operator failures, and audit-sink failures. Monitor denial reasons by policy
+identifier, retain a rollback path, then enable enforcement incrementally.

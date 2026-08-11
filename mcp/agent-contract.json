@@ -1,0 +1,419 @@
+{
+  "schemaVersion": "tunet.opensource-agent-mcp.v1",
+  "offering": {
+    "id": "access_gate",
+    "name": "AccessGate",
+    "packageName": "AccessGate",
+    "status": "alpha",
+    "license": "MIT",
+    "purpose": "Composable, default-deny authorization for Python applications with RBAC, ABAC, and lightweight relationship-policy support.",
+    "audiences": [
+      "python-developer",
+      "security-engineer",
+      "platform-engineer",
+      "customer-agent",
+      "maintainer-agent"
+    ]
+  },
+  "server": {
+    "name": "access-gate-public-contract-mcp",
+    "title": "AccessGate Public Agent Contract",
+    "version": "0.2.0",
+    "transport": "stdio",
+    "required": true,
+    "hostedEndpoint": "https://github.com/Tunet-xyz/access_gate/tree/main/mcp"
+  },
+  "instructions": "Use AccessGate to design and validate authorization policies, not to authenticate callers or infer permissions from unverified data. Prefer synthetic examples, preserve exact action and attribute matching, and require review before production rollout.",
+  "publicAccess": {
+    "mcpEndpoint": "dependency-free stdio server in the package and repository mcp/ directory",
+    "pythonPackage": "pip install AccessGate",
+    "pythonApi": [
+      "AuthorizationEngine",
+      "RolePolicy",
+      "AttributePolicy",
+      "TenantBoundaryPolicy",
+      "OwnerPolicy",
+      "OperatorRegistry"
+    ],
+    "cli": [
+      "accessgate-mcp"
+    ],
+    "docsUrl": "https://github.com/Tunet-xyz/access_gate#readme",
+    "pypiUrl": "https://pypi.org/project/AccessGate/",
+    "repositoryUrl": "https://github.com/Tunet-xyz/access_gate",
+    "supportedOperationModes": [
+      "mcp-tools",
+      "python-api",
+      "browser-docs"
+    ]
+  },
+  "resources": [
+    {
+      "uri": "opensource://access_gate/overview",
+      "name": "overview",
+      "title": "Offering Overview",
+      "description": "What AccessGate does and where its trust boundary ends.",
+      "mimeType": "text/markdown",
+      "content": "# AccessGate\n\nAccessGate evaluates whether a subject may perform an action on a resource in a context. It supports exact RBAC grants, declarative ABAC conditions, tenant and ownership boundaries, custom policies, custom decision strategies, custom operands and locally scoped custom operators. It does not authenticate identities, verify tokens, secure sessions, or query application data."
+    },
+    {
+      "uri": "opensource://access_gate/authorization-models",
+      "name": "authorization-models",
+      "title": "Authorization Models",
+      "description": "Public APIs for RBAC, ABAC, and lightweight relationship policies.",
+      "mimeType": "application/json",
+      "data": {
+        "rbac": [
+          "RolePolicy",
+          "AuthenticatedPolicy"
+        ],
+        "abac": [
+          "AttributePolicy",
+          "SubjectAttribute",
+          "ResourceAttribute",
+          "ActionAttribute",
+          "ContextAttribute",
+          "AllOf",
+          "AnyOf",
+          "Not"
+        ],
+        "relationship": [
+          "OwnerPolicy",
+          "TenantBoundaryPolicy"
+        ],
+        "composition": [
+          "AuthorizationEngine",
+          "DenyOverrides",
+          "MissEffect"
+        ],
+        "customization": [
+          "Policy",
+          "DecisionStrategy",
+          "OperatorRegistry",
+          "SubjectResolver",
+          "ResourceResolver",
+          "AuditSink"
+        ]
+      }
+    },
+    {
+      "uri": "opensource://access_gate/abac-semantics",
+      "name": "abac-semantics",
+      "title": "ABAC Safety Semantics",
+      "description": "How declarative attribute conditions remain fail closed.",
+      "mimeType": "application/json",
+      "data": {
+        "namespaces": [
+          "subject",
+          "resource",
+          "action",
+          "context"
+        ],
+        "states": [
+          "match",
+          "no_match",
+          "indeterminate"
+        ],
+        "builtInOperators": [
+          "contains",
+          "eq",
+          "exists",
+          "gt",
+          "gte",
+          "in",
+          "intersects",
+          "lt",
+          "lte",
+          "neq",
+          "not_contains",
+          "not_exists",
+          "not_in",
+          "subset_of",
+          "superset_of"
+        ],
+        "safeguards": [
+          "mapping-only path traversal",
+          "no eval",
+          "no implicit string substring membership",
+          "missing operands are indeterminate",
+          "negation preserves indeterminate",
+          "operator exceptions are redacted and indeterminate"
+        ]
+      }
+    },
+    {
+      "uri": "opensource://access_gate/workflows",
+      "name": "workflows",
+      "title": "Agent Workflow Catalog",
+      "description": "Review-first workflows external agents can prepare.",
+      "mimeType": "application/json",
+      "data": [
+        {
+          "id": "choose_model",
+          "goal": "Choose RBAC, ABAC, relationship policies, or a composition.",
+          "approval": "design review"
+        },
+        {
+          "id": "draft_policy",
+          "goal": "Draft a versioned access_gate.policy.v1 document.",
+          "approval": "security and application-owner review"
+        },
+        {
+          "id": "validate_policy",
+          "goal": "Validate syntax, schema version, operators, and safe defaults.",
+          "approval": "none; read-only"
+        },
+        {
+          "id": "map_framework",
+          "goal": "Map verified identity and domain objects into AccessGate resolvers.",
+          "approval": "integration review"
+        },
+        {
+          "id": "rollout",
+          "goal": "Prepare shadow evaluation, decision comparison, monitoring, rollback, and enforcement.",
+          "approval": "required before enforcement"
+        }
+      ]
+    },
+    {
+      "uri": "opensource://access_gate/security-and-audit",
+      "name": "security-and-audit",
+      "title": "Security And Audit Rules",
+      "description": "Safety expectations for agents and integrations.",
+      "mimeType": "application/json",
+      "data": {
+        "sensitiveData": [
+          "identity claims",
+          "roles",
+          "tenant identifiers",
+          "resource attributes",
+          "environment context",
+          "authorization decisions"
+        ],
+        "humanApprovalRequiredFor": [
+          "production policy change",
+          "custom operator deployment",
+          "fail-open or abstain-on-error behavior",
+          "enforcement rollout"
+        ],
+        "rules": [
+          "default deny",
+          "deny overrides",
+          "exact action matching",
+          "redacted decision reasons",
+          "synthetic MCP examples preferred"
+        ]
+      }
+    }
+  ],
+  "tools": [
+    {
+      "name": "describe_offering",
+      "title": "Describe AccessGate",
+      "description": "Explain AccessGate's authorization models, trust boundary, extension points, and secure defaults.",
+      "executionMode": "contract",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "list_authorization_models",
+      "title": "List Authorization Models",
+      "description": "List RBAC, ABAC, relationship, composition, and customization APIs.",
+      "executionMode": "contract",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "enum": [
+              "all",
+              "rbac",
+              "abac",
+              "relationship",
+              "custom"
+            ]
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "get_policy_schema",
+      "title": "Get ABAC Policy Schema",
+      "description": "Return the packaged access_gate.policy.v1 JSON Schema.",
+      "executionMode": "local-read",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "list_builtin_operators",
+      "title": "List Built-in ABAC Operators",
+      "description": "Return the exact built-in operator names accepted by AccessGate.",
+      "executionMode": "local-read",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "validate_policy_document",
+      "title": "Validate ABAC Policy",
+      "description": "Parse and normalize an access_gate.policy.v1 object or JSON string without evaluating real identities or resources.",
+      "executionMode": "local-read",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "policy": {
+            "oneOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "required": [
+          "policy"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "map_integration",
+      "title": "Map An Integration",
+      "description": "Map a framework, identity source, resources, actions, context, audit sink, rollout, and verification plan.",
+      "executionMode": "contract",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "framework": {
+            "type": "string"
+          },
+          "identitySource": {
+            "type": "string"
+          },
+          "authorizationGoals": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "framework",
+          "authorizationGoals"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "draft_policy",
+      "title": "Draft Reviewed Policy",
+      "description": "Prepare a reviewed RBAC or ABAC policy design using synthetic attributes and explicit failure behavior.",
+      "executionMode": "contract",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "enum": [
+              "rbac",
+              "abac",
+              "relationship",
+              "hybrid"
+            ]
+          },
+          "goal": {
+            "type": "string"
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "model",
+          "goal"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false
+      }
+    }
+  ],
+  "prompts": [
+    {
+      "name": "agent_onboarding",
+      "title": "AccessGate Agent Onboarding",
+      "description": "Orient an agent before designing or reviewing authorization.",
+      "arguments": [
+        {
+          "name": "user_goal",
+          "description": "What the user wants to authorize.",
+          "required": true
+        }
+      ],
+      "template": "You are helping a developer use AccessGate for: {user_goal}. Separate authentication from authorization, choose the smallest suitable model, use exact matching and synthetic examples, preserve indeterminate outcomes, validate serialized policy, and require review before production enforcement."
+    },
+    {
+      "name": "policy_review",
+      "title": "Review An Authorization Policy",
+      "description": "Review a policy for grants, boundaries, missing attributes, failure behavior, auditability, and rollout.",
+      "arguments": [
+        {
+          "name": "policy_summary",
+          "description": "A redacted policy summary.",
+          "required": true
+        }
+      ],
+      "template": "Review this redacted AccessGate policy: {policy_summary}. Identify grants, deny boundaries, attribute provenance, indeterminate behavior, custom operators, sensitive metadata, tests, shadow-mode verification, and rollback."
+    }
+  ],
+  "security": {
+    "tenantScoped": false,
+    "auditRequired": true,
+    "defaultMode": "read-validate-and-plan-first",
+    "approvalRequiredFor": [
+      "production_policy_change",
+      "custom_operator",
+      "abstain_on_indeterminate",
+      "enforcement_rollout"
+    ]
+  },
+  "acceptanceChecklist": [
+    "Agents can distinguish authentication, session trust, and authorization.",
+    "RBAC, ABAC, and relationship-policy composition is documented.",
+    "Serialized ABAC policies are versioned and locally validated.",
+    "No operator uses arbitrary eval or implicit string substring membership.",
+    "Missing data and operator failures cannot be negated into access.",
+    "MCP tools do not require production identity or resource data.",
+    "Rollout guidance includes shadow evaluation, monitoring, rollback, and human approval."
+  ]
+}

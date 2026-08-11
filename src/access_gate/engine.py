@@ -71,6 +71,7 @@ class AuthorizationEngine:
         resource: Resource | None = None,
         *,
         context: Mapping[str, object] | None = None,
+        action_attributes: Mapping[str, object] | None = None,
     ) -> Decision:
         """Convenience API for callers that do not need to construct a request."""
 
@@ -80,6 +81,7 @@ class AuthorizationEngine:
                 action=action,
                 resource=resource,
                 context=context or {},
+                action_attributes=action_attributes or {},
             )
         )
 
