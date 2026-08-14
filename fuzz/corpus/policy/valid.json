@@ -1,0 +1,1 @@
+{"schema_version":"access_gate.policy.v1","type":"attribute_policy","name":"fuzz","actions":["read"],"match_effect":"allow","on_no_match":"deny","on_indeterminate":"deny","condition":{"type":"comparison","operator":"eq","left":{"source":"context","path":"trusted"},"right":{"value":true}}}

@@ -65,6 +65,11 @@ needs ordinary JSON-serializable lists and dictionaries.
 Applications should keep sensitive values out of decision reasons and metadata
 because audit sinks may persist them.
 
+Configure `policy_set_id` with a reviewed policy-set fingerprint or a bounded
+deployment identifier. The engine owns this metadata key and overwrites any
+policy-supplied value before audit, including fail-closed audit decisions. Policy
+names must be non-empty and unique within an engine so evidence is unambiguous.
+
 ## Authorization models
 
 RBAC is represented by exact `RolePolicy` rules. ABAC uses an
@@ -81,3 +86,8 @@ remain stable without scanning unrelated action-specific rules.
 ABAC conditions evaluate to `match`, `no_match`, or `indeterminate`. Missing
 attributes, unknown operators, and operator exceptions are indeterminate. A
 negation preserves indeterminate rather than converting it to a match.
+
+Policy fingerprints and signed envelopes apply to serializable
+`AttributePolicy` objects. Application-defined executable policies require a
+separate code/configuration integrity process. Key custody, signature algorithm
+allowlisting, activation, revocation, and rollback prevention belong to the host.

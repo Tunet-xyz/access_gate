@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Iterable, Mapping
 from enum import Enum
 from inspect import isawaitable
@@ -33,6 +34,7 @@ class AuthorizationEngine:
         policy_error_mode: ErrorMode = ErrorMode.DENY,
         strategy_error_mode: ErrorMode = ErrorMode.DENY,
         audit_error_mode: ErrorMode = ErrorMode.DENY,
+        policy_set_id: str | None = None,
     ) -> None:
         if not isinstance(policy_error_mode, ErrorMode):
             raise TypeError("policy_error_mode must be an ErrorMode value.")
@@ -42,7 +44,23 @@ class AuthorizationEngine:
             raise ValueError("strategy_error_mode cannot ignore a missing final decision.")
         if not isinstance(audit_error_mode, ErrorMode):
             raise TypeError("audit_error_mode must be an ErrorMode value.")
+        if policy_set_id is not None and (
+            not isinstance(policy_set_id, str)
+            or len(policy_set_id) > 256
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/+-]*", policy_set_id) is None
+        ):
+            raise ValueError(
+                "policy_set_id must be a bounded identifier containing safe characters."
+            )
         self._policies = tuple(policies)
+        policy_names: list[str] = []
+        for policy in self._policies:
+            name = getattr(policy, "name", None)
+            if not isinstance(name, str) or not name:
+                raise TypeError("Every policy must have a non-empty string name.")
+            policy_names.append(name)
+        if len(set(policy_names)) != len(policy_names):
+            raise ValueError("Policy names must be unique within an authorization engine.")
         global_policies: list[tuple[int, Policy]] = []
         policies_by_action: dict[str, list[tuple[int, Policy]]] = {}
         for index, policy in enumerate(self._policies):
@@ -63,10 +81,15 @@ class AuthorizationEngine:
         self._policy_error_mode = policy_error_mode
         self._strategy_error_mode = strategy_error_mode
         self._audit_error_mode = audit_error_mode
+        self._policy_set_id = policy_set_id
 
     @property
     def policies(self) -> tuple[Policy, ...]:
         return self._policies
+
+    @property
+    def policy_set_id(self) -> str | None:
+        return self._policy_set_id
 
     def decide(self, request: AuthorizationRequest) -> Decision:
         decisions: list[Decision] = []
@@ -104,7 +127,7 @@ class AuthorizationEngine:
                 policy="access_gate.strategy",
                 metadata={"error_type": type(error).__name__},
             )
-        return self._record(request, final)
+        return self._record(request, self._annotate(final))
 
     def decide_many(self, requests: Iterable[AuthorizationRequest]) -> tuple[Decision, ...]:
         """Evaluate a batch while preserving request order and audit behavior."""
@@ -156,12 +179,21 @@ class AuthorizationEngine:
             if self._audit_error_mode is ErrorMode.RAISE:
                 raise
             if self._audit_error_mode is ErrorMode.DENY:
-                return Decision.deny(
-                    "The authorization decision could not be audited.",
-                    policy="access_gate.audit",
-                    metadata={"error_type": type(error).__name__},
+                return self._annotate(
+                    Decision.deny(
+                        "The authorization decision could not be audited.",
+                        policy="access_gate.audit",
+                        metadata={"error_type": type(error).__name__},
+                    )
                 )
         return decision
+
+    def _annotate(self, decision: Decision) -> Decision:
+        if self._policy_set_id is None:
+            return decision
+        metadata = dict(decision.metadata)
+        metadata["policy_set_id"] = self._policy_set_id
+        return Decision(decision.effect, decision.reason, decision.policy, metadata)
 
     @staticmethod
     def _close_awaitable(value: object) -> None:

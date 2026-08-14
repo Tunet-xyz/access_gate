@@ -31,13 +31,17 @@ jobs:
           pip install .[dev]
 
       - name: Lint
-        run: ruff check src tests
+        run: ruff check src tests fuzz tools
 
       - name: Type check
         run: mypy src/access_gate
 
       - name: Test
         run: pytest --cov=access_gate --cov-report=xml --cov-report=term-missing
+
+      - name: Enforce authorization performance budgets
+        if: matrix.python-version == '3.13'
+        run: python -m tools.authorization_benchmark --enforce
 
       - name: Upload coverage
         if: matrix.python-version == '3.12'

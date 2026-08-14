@@ -125,6 +125,16 @@ should apply a smaller transport limit when their policy domain permits it.
 Custom operators remain code and are not embedded in a policy document. A host
 must explicitly supply the required registry when loading such a policy.
 
+Policy decisions omit the configured condition document from metadata by
+default, because literal operands may contain sensitive configuration. Set
+`include_policy_document_in_metadata=True` only for a controlled diagnostic
+environment whose audit sink, retention, and access controls are appropriate.
+Structural evaluation metadata remains available without supplied values.
+
+`equals(None)` and other comparisons with `None` use an explicit JSON null
+literal. Omitting the operand is distinct and is valid only for operators whose
+shape permits it.
+
 ## Attribute provenance
 
 Treat each attribute as a security input:

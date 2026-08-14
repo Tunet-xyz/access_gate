@@ -28,6 +28,49 @@ def test_no_matching_policy_is_denied() -> None:
     assert decision.policy == "access_gate.default_deny"
 
 
+def test_policy_names_must_be_unique_and_valid() -> None:
+    first = FunctionPolicy("duplicate", lambda value: None)
+    second = FunctionPolicy("duplicate", lambda value: None)
+
+    with pytest.raises(ValueError, match="unique"):
+        AuthorizationEngine([first, second])
+
+    class Nameless:
+        def evaluate(self, value: AuthorizationRequest) -> None:
+            del value
+
+    with pytest.raises(TypeError, match="non-empty string name"):
+        AuthorizationEngine([Nameless()])  # type: ignore[list-item]
+
+
+def test_policy_set_identifier_is_engine_owned_and_audited() -> None:
+    policy = FunctionPolicy(
+        "allow",
+        lambda value: Decision.allow(
+            "Allowed.",
+            metadata={"policy_set_id": "spoofed"},
+        ),
+    )
+    recorder = Recorder([])
+    engine = AuthorizationEngine(
+        [policy],
+        policy_set_id="sha256:0123456789abcdef",
+        audit_sink=recorder,
+    )
+
+    decision = engine.decide(request())
+
+    assert decision.metadata["policy_set_id"] == "sha256:0123456789abcdef"
+    assert engine.policy_set_id == "sha256:0123456789abcdef"
+    assert recorder.values == [(request(), decision)]
+
+
+@pytest.mark.parametrize("value", ["", "unsafe value", "x" * 257])
+def test_policy_set_identifier_is_validated(value: str) -> None:
+    with pytest.raises(ValueError, match="policy_set_id"):
+        AuthorizationEngine([], policy_set_id=value)
+
+
 def test_explicit_allow_grants_access() -> None:
     policy = FunctionPolicy(
         "allow_read",

@@ -27,6 +27,19 @@ from .abac import (
 )
 from .engine import AuthorizationEngine, ErrorMode
 from .exceptions import AuthorizationDenied
+from .integrity import (
+    CANONICAL_POLICY_FORMAT,
+    POLICY_SET_SCHEMA_VERSION,
+    SIGNED_POLICY_ENVELOPE_VERSION,
+    PolicyIntegrityError,
+    PolicySignatureVerifier,
+    PolicySigner,
+    canonical_policy_bytes,
+    dumps_signed_policy,
+    loads_signed_policy,
+    policy_fingerprint,
+    policy_set_fingerprint,
+)
 from .policies import (
     AuthenticatedPolicy,
     FunctionPolicy,
@@ -57,6 +70,7 @@ __all__ = [
     "AuthorizationDenied",
     "AuthorizationEngine",
     "AuthorizationRequest",
+    "CANONICAL_POLICY_FORMAT",
     "Comparison",
     "Condition",
     "ConditionResult",
@@ -74,6 +88,10 @@ __all__ = [
     "OperatorRegistry",
     "OwnerPolicy",
     "Policy",
+    "POLICY_SET_SCHEMA_VERSION",
+    "PolicyIntegrityError",
+    "PolicySignatureVerifier",
+    "PolicySigner",
     "POLICY_SCHEMA_VERSION",
     "PolicySchemaError",
     "Resource",
@@ -83,12 +101,18 @@ __all__ = [
     "Subject",
     "SubjectAttribute",
     "SubjectResolver",
+    "SIGNED_POLICY_ENVELOPE_VERSION",
     "TenantBoundaryPolicy",
     "attribute_policy_from_dict",
+    "canonical_policy_bytes",
     "condition_from_dict",
     "dumps_policy",
+    "dumps_signed_policy",
     "load_policy_schema",
     "loads_policy",
+    "loads_signed_policy",
+    "policy_fingerprint",
+    "policy_set_fingerprint",
 ]
 
 __version__ = "0.2.0a1"

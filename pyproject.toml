@@ -40,14 +40,22 @@ dev = [
   "bandit>=1.7",
   "build>=1.2",
   "django-stubs>=4.2",
+  "hypothesis>=6.112,<7",
   "mypy>=1.10",
   "pip-audit>=2.7",
   "pytest>=8.0",
   "pytest-cov>=5.0",
   "ruff>=0.5",
   "setuptools>=68",
+  "tomli>=2; python_version < '3.11'",
   "wheel",
 ]
+assurance = [
+  "hypothesis>=6.112,<7",
+  "mutmut==3.7.0",
+  "pytest>=8.0",
+]
+fuzz = ["atheris==3.0.0"]
 
 [project.urls]
 Homepage = "https://github.com/Tunet-xyz/access_gate"
@@ -87,3 +95,8 @@ branch = true
 [tool.coverage.report]
 show_missing = true
 fail_under = 90
+
+[tool.mutmut]
+source_paths = ["src/access_gate/"]
+pytest_add_cli_args_test_selection = ["tests/"]
+mutate_only_covered_lines = true

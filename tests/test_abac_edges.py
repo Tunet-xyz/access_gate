@@ -164,6 +164,23 @@ def test_policy_operator_registry_is_frozen_after_construction() -> None:
         policy.operators.register("eq", lambda left, right: True, replace=True)
 
 
+def test_policy_document_is_redacted_from_decisions_by_default() -> None:
+    safe = AttributePolicy(ContextAttribute("token").equals("classified-policy-value"))
+    diagnostic = AttributePolicy(
+        ContextAttribute("token").equals("classified-policy-value"),
+        name="diagnostic",
+        include_policy_document_in_metadata=True,
+    )
+
+    safe_decision = safe.evaluate(request(context={"token": "wrong"}))
+    diagnostic_decision = diagnostic.evaluate(request(context={"token": "wrong"}))
+
+    assert safe_decision is not None
+    assert "classified-policy-value" not in str(safe_decision.metadata)
+    assert diagnostic_decision is not None
+    assert "classified-policy-value" in str(diagnostic_decision.metadata)
+
+
 def test_combinator_remaining_states_and_serialization() -> None:
     value = request(context={"truth": True, "false": False})
     indeterminate_all = AllOf(
@@ -300,6 +317,11 @@ def test_invalid_condition_documents_are_rejected(condition: dict[str, object]) 
 def test_loads_policy_rejects_non_object_json() -> None:
     with pytest.raises(PolicySchemaError, match="must be an object"):
         loads_policy("[]")
+
+
+def test_loads_policy_rejects_duplicate_json_keys() -> None:
+    with pytest.raises(PolicySchemaError, match="valid JSON"):
+        loads_policy('{"schema_version":"access_gate.policy.v1","schema_version":"other"}')
 
 
 def test_all_serialized_policy_entry_points_enforce_complexity_limits() -> None:

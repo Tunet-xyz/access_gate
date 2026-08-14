@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -19,6 +20,51 @@ from ..abac import (
 PROTOCOL_VERSION = "2025-06-18"
 CONTRACT_PATH = Path(__file__).with_name("agent-contract.json")
 MAX_MESSAGE_CHARS = 1_100_000
+MAX_JSON_NUMBER_CHARS = 256
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Unsupported JSON constant: {value}")
+
+
+def _reject_duplicate_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    value: dict[str, object] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError(f"Duplicate JSON object key: {key}")
+        value[key] = item
+    return value
+
+
+def _parse_json_integer(value: str) -> int:
+    if len(value) > MAX_JSON_NUMBER_CHARS:
+        raise ValueError("JSON integer exceeds the digit limit.")
+    return int(value)
+
+
+def _parse_json_float(value: str) -> float:
+    if len(value) > MAX_JSON_NUMBER_CHARS:
+        raise ValueError("JSON number exceeds the digit limit.")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError("JSON numbers must be finite.")
+    return number
+
+
+def parse_message(document: str) -> object:
+    """Parse one bounded, unambiguous JSON-RPC message."""
+
+    if not isinstance(document, str):
+        raise TypeError("MCP messages must be strings.")
+    if len(document) > MAX_MESSAGE_CHARS:
+        raise ValueError("MCP message exceeds the size limit.")
+    return json.loads(
+        document,
+        parse_constant=_reject_json_constant,
+        parse_float=_parse_json_float,
+        parse_int=_parse_json_integer,
+        object_pairs_hook=_reject_duplicate_json_object,
+    )
 
 
 def load_contract() -> dict[str, Any]:
@@ -319,8 +365,8 @@ def main() -> None:
         if not line.strip():
             continue
         try:
-            message = json.loads(line)
-        except (json.JSONDecodeError, RecursionError) as parse_error:
+            message = parse_message(line)
+        except (json.JSONDecodeError, RecursionError, TypeError, ValueError) as parse_error:
             write_message(error(None, -32700, "Parse error", {"detail": str(parse_error)}))
             continue
         response = handle(message, contract)

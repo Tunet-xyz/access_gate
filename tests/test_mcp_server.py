@@ -335,3 +335,24 @@ def test_main_bounds_messages_and_continues_processing(
     assert responses[0]["error"]["message"] == "Message exceeds the size limit"
     assert responses[1]["error"]["code"] == -32700
     assert responses[2]["result"]["serverInfo"]["version"] == "0.2.0a1"
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        '{"jsonrpc":"2.0","method":"tools/list","method":"initialize"}',
+        '{"jsonrpc":"2.0","id":NaN,"method":"tools/list"}',
+        '{"jsonrpc":"2.0","id":1e999,"method":"tools/list"}',
+        "1" * 5_000,
+    ],
+)
+def test_strict_mcp_parser_rejects_ambiguous_or_invalid_json(document: str) -> None:
+    with pytest.raises(ValueError):
+        mcp_server.parse_message(document)
+
+
+def test_strict_mcp_parser_enforces_type_and_size_bounds() -> None:
+    with pytest.raises(TypeError):
+        mcp_server.parse_message(b"{}")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="size limit"):
+        mcp_server.parse_message(" " * (mcp_server.MAX_MESSAGE_CHARS + 1))

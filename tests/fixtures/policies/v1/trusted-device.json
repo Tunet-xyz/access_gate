@@ -1,0 +1,22 @@
+{
+  "actions": [
+    "document.read"
+  ],
+  "condition": {
+    "left": {
+      "path": "attributes.device.trusted",
+      "source": "subject"
+    },
+    "operator": "eq",
+    "right": {
+      "value": true
+    },
+    "type": "comparison"
+  },
+  "match_effect": "allow",
+  "name": "trusted_device",
+  "on_indeterminate": "deny",
+  "on_no_match": "deny",
+  "schema_version": "access_gate.policy.v1",
+  "type": "attribute_policy"
+}

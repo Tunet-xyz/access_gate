@@ -75,6 +75,7 @@ class _Missing:
 
 
 MISSING = _Missing()
+_UNSET_OPERAND = object()
 ResolvedValue = object | _Missing
 OperatorFunction = Callable[[object, object], bool]
 
@@ -356,8 +357,8 @@ class AttributeRef:
             current = cast(Mapping[str, object], current)[segment]
         return current
 
-    def compare(self, operator: str, other: Operand | object | None = None) -> Comparison:
-        right = None if other is None else _operand(other)
+    def compare(self, operator: str, other: Operand | object = _UNSET_OPERAND) -> Comparison:
+        right = None if other is _UNSET_OPERAND else _operand(other)
         return Comparison(self, operator, right)
 
     def equals(self, other: Operand | object) -> Comparison:
@@ -656,6 +657,7 @@ class AttributePolicy:
     on_indeterminate: MissEffect
     name: str
     operators: OperatorRegistry
+    include_policy_document_in_metadata: bool
     _condition_document: Mapping[str, object]
 
     def __init__(
@@ -668,6 +670,7 @@ class AttributePolicy:
         on_indeterminate: MissEffect = MissEffect.DENY,
         name: str = "attribute",
         operators: OperatorRegistry | None = None,
+        include_policy_document_in_metadata: bool = False,
     ) -> None:
         if on_no_match is None:
             on_no_match = MissEffect.DENY if match_effect is Effect.ALLOW else MissEffect.ABSTAIN
@@ -679,6 +682,8 @@ class AttributePolicy:
             raise TypeError("on_indeterminate must be a MissEffect value.")
         if not isinstance(name, str) or not name:
             raise TypeError("policy name must be a non-empty string.")
+        if not isinstance(include_policy_document_in_metadata, bool):
+            raise TypeError("include_policy_document_in_metadata must be a boolean.")
         if isinstance(actions, str):
             raise TypeError("actions must be a collection of names, not a string.")
         normalized_actions = None if actions is None else frozenset(actions)
@@ -709,6 +714,11 @@ class AttributePolicy:
         object.__setattr__(self, "on_indeterminate", on_indeterminate)
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "operators", (operators or OperatorRegistry()).copy(frozen=True))
+        object.__setattr__(
+            self,
+            "include_policy_document_in_metadata",
+            include_policy_document_in_metadata,
+        )
         object.__setattr__(self, "_condition_document", frozen_document)
 
     def evaluate(self, request: AuthorizationRequest) -> Decision | None:
@@ -722,11 +732,12 @@ class AttributePolicy:
             raise TypeError("ABAC conditions must be synchronous.")
         if not isinstance(result, ConditionResult):
             raise TypeError("ABAC conditions must return a ConditionResult.")
-        metadata = {
+        metadata: dict[str, object] = {
             "condition_state": result.state.value,
-            "condition": self._condition_document,
             "evaluation": dict(result.metadata),
         }
+        if self.include_policy_document_in_metadata:
+            metadata["condition"] = self._condition_document
         if result.state is ConditionState.INDETERMINATE:
             if self.on_indeterminate is MissEffect.ABSTAIN:
                 return None
@@ -1036,6 +1047,15 @@ def _reject_json_constant(value: str) -> None:
     raise ValueError(f"Unsupported JSON constant: {value}")
 
 
+def _reject_duplicate_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    value: dict[str, object] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError(f"Duplicate JSON object key: {key}")
+        value[key] = item
+    return value
+
+
 def loads_policy(document: str, *, operators: OperatorRegistry | None = None) -> AttributePolicy:
     if not isinstance(document, str):
         raise TypeError("policy document must be a string.")
@@ -1045,6 +1065,7 @@ def loads_policy(document: str, *, operators: OperatorRegistry | None = None) ->
         value = json.loads(
             document,
             parse_constant=_reject_json_constant,
+            object_pairs_hook=_reject_duplicate_json_object,
         )
     except (json.JSONDecodeError, RecursionError, ValueError) as error:
         raise PolicySchemaError("The policy document is not valid JSON.") from error

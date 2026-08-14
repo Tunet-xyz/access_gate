@@ -12,8 +12,9 @@ It is complementary to authentication and session-security packages such as
 SessionArmor. Those establish who the caller is and whether the session can be
 trusted; AccessGate decides what that caller is allowed to do.
 
-> **Status:** early alpha. The core concepts are implemented, but the public API
-> may evolve before 1.0.
+> **Status:** early alpha. Security controls and assurance evidence are being
+> developed rigorously, but the public API may evolve before 1.0. This package
+> has not received an independent audit or any government/NATO accreditation.
 
 ## Design guarantees
 
@@ -28,6 +29,9 @@ trusted; AccessGate decides what that caller is allowed to do.
   are recursively snapshotted before evaluation or audit.
 - **Bounded evaluation:** serialized policies, condition trees, MCP messages, and
   collection workloads have explicit denial-of-service limits.
+- **Verifiable policy identity:** canonical fingerprints, ordered policy-set
+  fingerprints, externally verified signed envelopes, and engine-owned policy
+  deployment identifiers support change control without embedding key custody.
 - **No expression evaluation:** declarative policies use registered operators
   and mapping-only attribute traversal—never Python `eval` or object traversal.
 - **Framework-neutral core:** no runtime dependencies and no ORM, token, or user
@@ -127,6 +131,21 @@ document = dumps_policy(document_access)
 restored = loads_policy(document)
 ```
 
+For controlled deployments, identify the exact ordered policy set and pass that
+identifier into the engine so every final and audited decision is attributable:
+
+```python
+from access_gate import AuthorizationEngine, policy_set_fingerprint
+
+policy_set_id = policy_set_fingerprint([document_access])
+engine = AuthorizationEngine([document_access], policy_set_id=policy_set_id)
+```
+
+`dumps_signed_policy()` and `loads_signed_policy()` accept application-supplied
+signer/verifier protocols. AccessGate deliberately does not choose algorithms,
+store keys, or implement a trust store. See
+[`docs/POLICY_FORMAT.md`](docs/POLICY_FORMAT.md).
+
 See [`docs/abac.md`](docs/abac.md) for the full data model, operator semantics,
 customization rules, JSON format, and rollout guidance.
 
@@ -209,6 +228,11 @@ ruff check src tests
 mypy src/access_gate
 pytest --cov=access_gate --cov-report=term-missing
 ```
+
+Security reviewers should begin with the
+[`threat model`](docs/THREAT_MODEL.md),
+[`assurance case`](docs/SECURITY_ASSURANCE.md), and
+[`audit scope`](docs/AUDIT_SCOPE.md).
 
 ## License
 

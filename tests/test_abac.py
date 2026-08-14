@@ -153,6 +153,13 @@ def test_exists_and_not_exists_are_explicit_missing_value_checks() -> None:
     assert evaluate(missing, request) is ConditionState.MATCH
 
 
+def test_none_is_an_explicit_literal_not_an_omitted_operand() -> None:
+    condition = ContextAttribute("optional").equals(None)
+
+    assert evaluate(condition, abac_request(context={"optional": None})) is ConditionState.MATCH
+    assert evaluate(condition, abac_request()) is ConditionState.INDETERMINATE
+
+
 def test_all_of_no_match_wins_over_an_indeterminate_child() -> None:
     condition = AllOf(
         SubjectAttribute("missing").equals(True),

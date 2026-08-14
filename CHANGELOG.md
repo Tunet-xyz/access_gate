@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Deterministic policy and ordered policy-set fingerprints, externally supplied
+  signed-policy verification, and engine-owned policy-set decision identifiers.
+- Property/differential tests, parser fuzz targets, scheduled mutation testing,
+  authorization performance budgets, and golden policy-format fixtures.
+- Threat model, assurance case, immutable audit scope, secure-development,
+  strict policy migration, and evidence-preserving release procedures.
+- Reproducible release verification, hash-locked build tools, SPDX artifact SBOM,
+  checksums, GitHub artifact attestations, and OpenSSF Scorecard analysis.
 - Native async Django view support, including awaitable adapter resolvers and
   denial handlers.
 - Bounded policy documents, condition depth, condition count, MCP messages, and
@@ -32,6 +40,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Policy literals are excluded from decision metadata by default; diagnostic
+  inclusion is an explicit opt-in.
+- Signed envelopes reject tampering, unknown fields, unsupported versions,
+  non-canonical signatures, invalid verifier returns, and verifier failures.
 - Empty role requirements and malformed policy names/actions are rejected at
   construction time.
 - Invalid policy results, invalid error-mode configuration, and strategy
