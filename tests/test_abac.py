@@ -102,8 +102,10 @@ def test_all_abac_namespaces_can_participate_in_one_policy() -> None:
         ("lt", 2, 3, ConditionState.MATCH),
         ("lte", 3, 3, ConditionState.MATCH),
         ("eq", True, 1, ConditionState.NO_MATCH),
-        ("contains", "administrator", "admin", ConditionState.NO_MATCH),
-        ("in", "admin", "administrator", ConditionState.NO_MATCH),
+        ("contains", "administrator", "admin", ConditionState.INDETERMINATE),
+        ("in", "admin", "administrator", ConditionState.INDETERMINATE),
+        ("not_contains", "administrator", "admin", ConditionState.INDETERMINATE),
+        ("not_in", "admin", "administrator", ConditionState.INDETERMINATE),
         ("gt", "4", "3", ConditionState.NO_MATCH),
     ],
 )
@@ -285,6 +287,40 @@ def test_custom_operator_exception_is_indeterminate_and_redacted() -> None:
     assert not decision.allowed
     assert decision.metadata["evaluation"]["issue"] == "operator_error"  # type: ignore[index]
     assert "secret-value" not in str(decision.metadata)
+
+
+@pytest.mark.parametrize("result", [1, "true", object()])
+def test_custom_operator_must_return_an_actual_boolean(result: object) -> None:
+    registry = OperatorRegistry({"invalid": lambda left, right: result})  # type: ignore[dict-item]
+    policy = AttributePolicy(
+        SubjectAttribute("department").compare("invalid", "safety"),
+        operators=registry,
+    )
+
+    decision = AuthorizationEngine([policy]).decide(
+        abac_request(subject_attributes={"department": "safety"})
+    )
+
+    assert not decision.allowed
+    assert decision.metadata["evaluation"]["issue"] == "operator_error"  # type: ignore[index]
+
+
+def test_async_custom_operator_is_closed_and_fails_closed() -> None:
+    async def async_operator(left: object, right: object) -> bool:
+        return True
+
+    registry = OperatorRegistry({"async_operator": async_operator})  # type: ignore[dict-item]
+    policy = AttributePolicy(
+        SubjectAttribute("department").compare("async_operator", "safety"),
+        operators=registry,
+    )
+
+    decision = AuthorizationEngine([policy]).decide(
+        abac_request(subject_attributes={"department": "safety"})
+    )
+
+    assert not decision.allowed
+    assert decision.metadata["condition_state"] == "indeterminate"
 
 
 def test_registry_rejects_unsafe_or_reserved_operator_names() -> None:

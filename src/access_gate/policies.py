@@ -16,18 +16,65 @@ class MissEffect(str, Enum):
     ABSTAIN = "abstain"
 
 
+_MAX_CONFIGURED_NAMES = 4_096
+
+
 def _targets(action: str, actions: frozenset[str] | None) -> bool:
     return actions is None or action in actions
 
 
-@dataclass(frozen=True, slots=True)
+def _names(
+    values: Collection[str],
+    *,
+    field_name: str,
+    allow_empty: bool = False,
+) -> frozenset[str]:
+    if isinstance(values, str):
+        raise TypeError(f"{field_name} must be a collection of names, not a string.")
+    names = frozenset(values)
+    if not allow_empty and not names:
+        raise ValueError(f"{field_name} must contain at least one name.")
+    if len(names) > _MAX_CONFIGURED_NAMES:
+        raise ValueError(f"{field_name} exceeds the maximum item count.")
+    if not all(isinstance(value, str) and value for value in names):
+        raise TypeError(f"{field_name} must contain only non-empty strings.")
+    return names
+
+
+def _actions(values: Collection[str] | None) -> frozenset[str] | None:
+    return None if values is None else _names(values, field_name="actions")
+
+
+def _policy_name(value: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise TypeError("policy name must be a non-empty string.")
+    return value
+
+
+@dataclass(frozen=True, slots=True, init=False)
 class FunctionPolicy:
     """Adapt an application callable to the Policy protocol."""
 
     name: str
     evaluator: Callable[[AuthorizationRequest], Decision | None]
+    actions: frozenset[str] | None = None
+
+    def __init__(
+        self,
+        name: str,
+        evaluator: Callable[[AuthorizationRequest], Decision | None],
+        *,
+        actions: Collection[str] | None = None,
+    ) -> None:
+        object.__setattr__(self, "name", _policy_name(name))
+        if not callable(evaluator):
+            raise TypeError("policy evaluator must be callable.")
+        object.__setattr__(self, "evaluator", evaluator)
+        object.__setattr__(self, "actions", _actions(actions))
 
     def evaluate(self, request: AuthorizationRequest) -> Decision | None:
+        if not _targets(request.action, self.actions):
+            return None
         return self.evaluator(request)
 
 
@@ -50,11 +97,19 @@ class RolePolicy:
         on_miss: MissEffect = MissEffect.DENY,
         name: str = "role",
     ) -> None:
-        object.__setattr__(self, "required_roles", frozenset(required_roles))
-        object.__setattr__(self, "actions", None if actions is None else frozenset(actions))
+        object.__setattr__(
+            self,
+            "required_roles",
+            _names(required_roles, field_name="required_roles"),
+        )
+        if not isinstance(require_all, bool):
+            raise TypeError("require_all must be a boolean.")
+        if not isinstance(on_miss, MissEffect):
+            raise TypeError("on_miss must be a MissEffect value.")
+        object.__setattr__(self, "actions", _actions(actions))
         object.__setattr__(self, "require_all", require_all)
         object.__setattr__(self, "on_miss", on_miss)
-        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "name", _policy_name(name))
 
     def evaluate(self, request: AuthorizationRequest) -> Decision | None:
         if not _targets(request.action, self.actions):
@@ -89,10 +144,14 @@ class OwnerPolicy:
         on_miss: MissEffect = MissEffect.DENY,
         name: str = "owner",
     ) -> None:
-        object.__setattr__(self, "actions", None if actions is None else frozenset(actions))
+        object.__setattr__(self, "actions", _actions(actions))
+        if not isinstance(owner_attribute, str) or not owner_attribute:
+            raise TypeError("owner_attribute must be a non-empty string.")
+        if not isinstance(on_miss, MissEffect):
+            raise TypeError("on_miss must be a MissEffect value.")
         object.__setattr__(self, "owner_attribute", owner_attribute)
         object.__setattr__(self, "on_miss", on_miss)
-        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "name", _policy_name(name))
 
     def evaluate(self, request: AuthorizationRequest) -> Decision | None:
         if not _targets(request.action, self.actions):
@@ -100,7 +159,12 @@ class OwnerPolicy:
         owner_id = None
         if request.resource is not None:
             owner_id = request.resource.attributes.get(self.owner_attribute)
-        if owner_id is not None and str(owner_id) == request.subject.identifier:
+        if (
+            request.subject.authenticated
+            and request.subject.identifier
+            and isinstance(owner_id, str)
+            and owner_id == request.subject.identifier
+        ):
             return Decision.allow("The subject owns the resource.", policy=self.name)
         if self.on_miss is MissEffect.ABSTAIN:
             return None
@@ -124,10 +188,14 @@ class TenantBoundaryPolicy:
         resource_attribute: str = "tenant_id",
         name: str = "tenant_boundary",
     ) -> None:
-        object.__setattr__(self, "actions", None if actions is None else frozenset(actions))
+        object.__setattr__(self, "actions", _actions(actions))
+        if not isinstance(subject_attribute, str) or not subject_attribute:
+            raise TypeError("subject_attribute must be a non-empty string.")
+        if not isinstance(resource_attribute, str) or not resource_attribute:
+            raise TypeError("resource_attribute must be a non-empty string.")
         object.__setattr__(self, "subject_attribute", subject_attribute)
         object.__setattr__(self, "resource_attribute", resource_attribute)
-        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "name", _policy_name(name))
 
     def evaluate(self, request: AuthorizationRequest) -> Decision | None:
         if not _targets(request.action, self.actions):
@@ -138,7 +206,14 @@ class TenantBoundaryPolicy:
             resource_tenant = request.resource.attributes.get(self.resource_attribute)
         if subject_tenant is None or resource_tenant is None:
             return Decision.deny("Tenant scope is missing.", policy=self.name)
-        if str(subject_tenant) != str(resource_tenant):
+        if (
+            not isinstance(subject_tenant, str)
+            or not subject_tenant
+            or not isinstance(resource_tenant, str)
+            or not resource_tenant
+        ):
+            return Decision.deny("Tenant scope is invalid.", policy=self.name)
+        if subject_tenant != resource_tenant:
             return Decision.deny("Cross-tenant access is forbidden.", policy=self.name)
         return None
 
@@ -156,8 +231,8 @@ class AuthenticatedPolicy:
         actions: Collection[str] | None = None,
         name: str = "authenticated",
     ) -> None:
-        object.__setattr__(self, "actions", None if actions is None else frozenset(actions))
-        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "actions", _actions(actions))
+        object.__setattr__(self, "name", _policy_name(name))
 
     def evaluate(self, request: AuthorizationRequest) -> Decision | None:
         if not _targets(request.action, self.actions):

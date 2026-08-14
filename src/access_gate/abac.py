@@ -8,18 +8,36 @@ from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from importlib.resources import files
+from inspect import isawaitable
+from math import isfinite, isnan
 from types import MappingProxyType
 from typing import Protocol, cast, runtime_checkable
 
 from .policies import MissEffect
-from .types import AuthorizationRequest, Decision, Effect
+from .types import AuthorizationRequest, Decision, Effect, _freeze_value
 
 POLICY_SCHEMA_VERSION = "access_gate.policy.v1"
 _OPERATOR_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
+MAX_POLICY_DOCUMENT_CHARS = 1_000_000
+MAX_POLICY_CONDITION_DEPTH = 64
+MAX_POLICY_CONDITION_NODES = 4_096
+MAX_POLICY_LITERAL_NODES = 100_000
+MAX_COLLECTION_ITEMS = 10_000
+MAX_FALLBACK_COMPARISONS = 100_000
 
 
 class PolicySchemaError(ValueError):
     """Raised when a serialized policy is malformed or unsupported."""
+
+
+def _thaw_policy_value(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {key: _thaw_policy_value(child) for key, child in value.items()}
+    if isinstance(value, tuple | list):
+        return [_thaw_policy_value(child) for child in value]
+    if isinstance(value, frozenset | set):
+        return value
+    return value
 
 
 class AttributeSource(str, Enum):
@@ -62,7 +80,7 @@ OperatorFunction = Callable[[object, object], bool]
 
 
 def _is_number(value: object) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return isinstance(value, int | float) and not isinstance(value, bool)
 
 
 def _equal(left: object, right: object) -> bool:
@@ -74,7 +92,7 @@ def _equal(left: object, right: object) -> bool:
 
 
 def _collection(value: object) -> Collection[object] | Mapping[object, object] | None:
-    if isinstance(value, (str, bytes, bytearray)):
+    if isinstance(value, str | bytes | bytearray):
         return None
     if isinstance(value, Mapping):
         return cast(Mapping[object, object], value)
@@ -83,26 +101,74 @@ def _collection(value: object) -> Collection[object] | Mapping[object, object] |
     return None
 
 
-def _contains(container: object, member: object) -> bool:
-    values = _collection(container)
+def _required_collection(
+    value: object,
+    *,
+    operand: str,
+) -> Collection[object] | Mapping[object, object]:
+    values = _collection(value)
     if values is None:
-        return False
+        raise TypeError(f"{operand} operand must be a non-string collection.")
+    if len(values) > MAX_COLLECTION_ITEMS:
+        raise ValueError(f"{operand} operand exceeds the collection size limit.")
+    return values
+
+
+_UNHASHABLE = object()
+
+
+def _exact_key(value: object) -> object:
+    if isinstance(value, bool):
+        return ("bool", value)
+    if isinstance(value, int | float):
+        if isinstance(value, float) and isnan(value):
+            return _UNHASHABLE
+        return ("number", value)
+    if isinstance(value, str):
+        return ("str", value)
+    if isinstance(value, bytes):
+        return ("bytes", value)
+    if value is None:
+        return ("none", None)
+    return _UNHASHABLE
+
+
+def _exact_key_set(values: Collection[object] | Mapping[object, object]) -> set[object] | None:
+    keys: set[object] = set()
+    for value in values:
+        key = _exact_key(value)
+        if key is _UNHASHABLE:
+            return None
+        keys.add(key)
+    return keys
+
+
+def _contains(container: object, member: object) -> bool:
+    values = _required_collection(container, operand="collection")
     return any(_equal(candidate, member) for candidate in values)
 
 
 def _intersects(left: object, right: object) -> bool:
-    left_values = _collection(left)
-    right_values = _collection(right)
-    if left_values is None or right_values is None:
-        return False
+    left_values = _required_collection(left, operand="left")
+    right_values = _required_collection(right, operand="right")
+    left_keys = _exact_key_set(left_values)
+    right_keys = _exact_key_set(right_values)
+    if left_keys is not None and right_keys is not None:
+        return not left_keys.isdisjoint(right_keys)
+    if len(left_values) * len(right_values) > MAX_FALLBACK_COMPARISONS:
+        raise ValueError("Collection comparison exceeds the safe comparison limit.")
     return any(_equal(a, b) for a in left_values for b in right_values)
 
 
 def _subset_of(left: object, right: object) -> bool:
-    left_values = _collection(left)
-    right_values = _collection(right)
-    if left_values is None or right_values is None:
-        return False
+    left_values = _required_collection(left, operand="left")
+    right_values = _required_collection(right, operand="right")
+    left_keys = _exact_key_set(left_values)
+    right_keys = _exact_key_set(right_values)
+    if left_keys is not None and right_keys is not None:
+        return left_keys <= right_keys
+    if len(left_values) * len(right_values) > MAX_FALLBACK_COMPARISONS:
+        raise ValueError("Collection comparison exceeds the safe comparison limit.")
     return all(any(_equal(item, candidate) for candidate in right_values) for item in left_values)
 
 
@@ -150,11 +216,14 @@ class OperatorRegistry:
         operators: Mapping[str, OperatorFunction] | None = None,
         *,
         include_builtins: bool = True,
+        frozen: bool = False,
     ) -> None:
+        self._frozen = False
         self._operators = _builtins() if include_builtins else {}
         if operators is not None:
             for name, evaluator in operators.items():
                 self.register(name, evaluator, replace=True)
+        self._frozen = frozen
 
     def register(
         self,
@@ -163,6 +232,8 @@ class OperatorRegistry:
         *,
         replace: bool = False,
     ) -> None:
+        if self._frozen:
+            raise TypeError("A frozen operator registry cannot be modified.")
         if not _OPERATOR_NAME.fullmatch(name):
             raise ValueError("Operator names must use lowercase letters, digits, and underscores.")
         if name in {"exists", "not_exists"}:
@@ -180,15 +251,27 @@ class OperatorRegistry:
     def names(self) -> tuple[str, ...]:
         return tuple(sorted((*self._operators, "exists", "not_exists")))
 
+    @property
+    def frozen(self) -> bool:
+        return self._frozen
+
     def evaluate(self, name: str, left: object, right: object) -> bool:
         try:
             evaluator = self._operators[name]
         except KeyError as error:
             raise KeyError(f"Unknown ABAC operator: {name}") from error
-        return bool(evaluator(left, right))
+        result = evaluator(left, right)
+        if isawaitable(result):
+            close = getattr(result, "close", None)
+            if callable(close):
+                close()
+            raise TypeError("ABAC operators must be synchronous.")
+        if not isinstance(result, bool):
+            raise TypeError("ABAC operators must return a boolean.")
+        return result
 
-    def copy(self) -> OperatorRegistry:
-        return OperatorRegistry(self._operators, include_builtins=False)
+    def copy(self, *, frozen: bool = False) -> OperatorRegistry:
+        return OperatorRegistry(self._operators, include_builtins=False, frozen=frozen)
 
 
 @runtime_checkable
@@ -207,12 +290,19 @@ class Literal:
 
     value: object
 
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "value",
+            _freeze_value(self.value, field_name="literal.value"),
+        )
+
     def resolve(self, request: AuthorizationRequest) -> ResolvedValue:
         del request
         return self.value
 
     def to_dict(self) -> dict[str, object]:
-        return {"value": self.value}
+        return {"value": _thaw_policy_value(self.value)}
 
     @property
     def label(self) -> str:
@@ -396,7 +486,13 @@ class Comparison:
                 **metadata,
             )
 
-        assert self.right is not None
+        if self.right is None:  # Defensive against corrupted/deserialized objects.
+            return _result(
+                ConditionState.INDETERMINATE,
+                "The condition is missing a required operand.",
+                issue="missing_configured_operand",
+                **metadata,
+            )
         right_value = self.right.resolve(request)
         if right_value is MISSING:
             return _result(
@@ -450,21 +546,30 @@ class AllOf:
         request: AuthorizationRequest,
         operators: OperatorRegistry,
     ) -> ConditionResult:
-        results = tuple(condition.evaluate(request, operators) for condition in self.conditions)
-        states = tuple(result.state.value for result in results)
-        if any(result.state is ConditionState.NO_MATCH for result in results):
-            return _result(
-                ConditionState.NO_MATCH,
-                "At least one required condition did not match.",
-                children=states,
-            )
-        if any(result.state is ConditionState.INDETERMINATE for result in results):
+        states: list[str] = []
+        indeterminate = False
+        for condition in self.conditions:
+            result = condition.evaluate(request, operators)
+            states.append(result.state.value)
+            if result.state is ConditionState.NO_MATCH:
+                return _result(
+                    ConditionState.NO_MATCH,
+                    "At least one required condition did not match.",
+                    children=tuple(states),
+                )
+            if result.state is ConditionState.INDETERMINATE:
+                indeterminate = True
+        if indeterminate:
             return _result(
                 ConditionState.INDETERMINATE,
                 "A required condition was indeterminate.",
-                children=states,
+                children=tuple(states),
             )
-        return _result(ConditionState.MATCH, "All required conditions matched.", children=states)
+        return _result(
+            ConditionState.MATCH,
+            "All required conditions matched.",
+            children=tuple(states),
+        )
 
     def to_dict(self) -> dict[str, object]:
         return {"type": "all_of", "conditions": [item.to_dict() for item in self.conditions]}
@@ -484,20 +589,29 @@ class AnyOf:
         request: AuthorizationRequest,
         operators: OperatorRegistry,
     ) -> ConditionResult:
-        results = tuple(condition.evaluate(request, operators) for condition in self.conditions)
-        states = tuple(result.state.value for result in results)
-        if any(result.state is ConditionState.MATCH for result in results):
-            return _result(ConditionState.MATCH, "At least one condition matched.", children=states)
-        if any(result.state is ConditionState.INDETERMINATE for result in results):
+        states: list[str] = []
+        indeterminate = False
+        for condition in self.conditions:
+            result = condition.evaluate(request, operators)
+            states.append(result.state.value)
+            if result.state is ConditionState.MATCH:
+                return _result(
+                    ConditionState.MATCH,
+                    "At least one condition matched.",
+                    children=tuple(states),
+                )
+            if result.state is ConditionState.INDETERMINATE:
+                indeterminate = True
+        if indeterminate:
             return _result(
                 ConditionState.INDETERMINATE,
                 "An alternative condition was indeterminate.",
-                children=states,
+                children=tuple(states),
             )
         return _result(
             ConditionState.NO_MATCH,
             "No alternative condition matched.",
-            children=states,
+            children=tuple(states),
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -542,6 +656,7 @@ class AttributePolicy:
     on_indeterminate: MissEffect
     name: str
     operators: OperatorRegistry
+    _condition_document: Mapping[str, object]
 
     def __init__(
         self,
@@ -556,21 +671,60 @@ class AttributePolicy:
     ) -> None:
         if on_no_match is None:
             on_no_match = MissEffect.DENY if match_effect is Effect.ALLOW else MissEffect.ABSTAIN
+        if not isinstance(match_effect, Effect):
+            raise TypeError("match_effect must be an Effect value.")
+        if not isinstance(on_no_match, MissEffect):
+            raise TypeError("on_no_match must be a MissEffect value.")
+        if not isinstance(on_indeterminate, MissEffect):
+            raise TypeError("on_indeterminate must be a MissEffect value.")
+        if not isinstance(name, str) or not name:
+            raise TypeError("policy name must be a non-empty string.")
+        if isinstance(actions, str):
+            raise TypeError("actions must be a collection of names, not a string.")
+        normalized_actions = None if actions is None else frozenset(actions)
+        if normalized_actions is not None:
+            if not normalized_actions:
+                raise ValueError("actions must contain at least one action when provided.")
+            if len(normalized_actions) > MAX_POLICY_CONDITION_NODES:
+                raise ValueError("actions exceeds the maximum item count.")
+            if not all(isinstance(action, str) and action for action in normalized_actions):
+                raise TypeError("actions must contain only non-empty strings.")
+        try:
+            condition_document = condition.to_dict()
+        except RecursionError as error:
+            raise PolicySchemaError("condition exceeds the maximum nesting depth.") from error
+        if not isinstance(condition_document, Mapping):
+            raise TypeError("condition.to_dict() must return a mapping.")
+        _validate_condition_complexity(condition_document)
+        frozen_document = _freeze_value(
+            condition_document,
+            field_name="condition document",
+        )
+        if not isinstance(frozen_document, Mapping):
+            raise TypeError("condition.to_dict() must return a mapping.")
         object.__setattr__(self, "condition", condition)
-        object.__setattr__(self, "actions", None if actions is None else frozenset(actions))
+        object.__setattr__(self, "actions", normalized_actions)
         object.__setattr__(self, "match_effect", match_effect)
         object.__setattr__(self, "on_no_match", on_no_match)
         object.__setattr__(self, "on_indeterminate", on_indeterminate)
         object.__setattr__(self, "name", name)
-        object.__setattr__(self, "operators", (operators or OperatorRegistry()).copy())
+        object.__setattr__(self, "operators", (operators or OperatorRegistry()).copy(frozen=True))
+        object.__setattr__(self, "_condition_document", frozen_document)
 
     def evaluate(self, request: AuthorizationRequest) -> Decision | None:
         if self.actions is not None and request.action not in self.actions:
             return None
         result = self.condition.evaluate(request, self.operators)
+        if isawaitable(result):
+            close = getattr(result, "close", None)
+            if callable(close):
+                close()
+            raise TypeError("ABAC conditions must be synchronous.")
+        if not isinstance(result, ConditionResult):
+            raise TypeError("ABAC conditions must return a ConditionResult.")
         metadata = {
             "condition_state": result.state.value,
-            "condition": self.condition.to_dict(),
+            "condition": self._condition_document,
             "evaluation": dict(result.metadata),
         }
         if result.state is ConditionState.INDETERMINATE:
@@ -602,6 +756,9 @@ class AttributePolicy:
         )
 
     def to_dict(self) -> dict[str, object]:
+        condition = _thaw_policy_value(self._condition_document)
+        if not isinstance(condition, dict):  # pragma: no cover - constructor invariant
+            raise TypeError("The cached condition document is invalid.")
         return {
             "schema_version": POLICY_SCHEMA_VERSION,
             "type": "attribute_policy",
@@ -610,7 +767,7 @@ class AttributePolicy:
             "match_effect": self.match_effect.value,
             "on_no_match": self.on_no_match.value,
             "on_indeterminate": self.on_indeterminate.value,
-            "condition": self.condition.to_dict(),
+            "condition": condition,
         }
 
     @classmethod
@@ -646,6 +803,67 @@ def _check_keys(
         raise PolicySchemaError(f"{field_name} contains unknown fields: {', '.join(extras)}")
 
 
+def _validate_condition_complexity(condition: Mapping[str, object]) -> None:
+    stack: list[tuple[object, int]] = [(condition, 1)]
+    nodes = 0
+    while stack:
+        current, depth = stack.pop()
+        nodes += 1
+        if nodes > MAX_POLICY_CONDITION_NODES:
+            raise PolicySchemaError("condition exceeds the maximum node count.")
+        if depth > MAX_POLICY_CONDITION_DEPTH:
+            raise PolicySchemaError("condition exceeds the maximum nesting depth.")
+        if not isinstance(current, Mapping):
+            continue
+        condition_type = current.get("type")
+        if condition_type == "not":
+            stack.append((current.get("condition"), depth + 1))
+        elif condition_type in {"all_of", "any_of"}:
+            children = current.get("conditions")
+            if isinstance(children, Sequence) and not isinstance(children, str | bytes):
+                stack.extend((child, depth + 1) for child in children)
+
+
+def _validate_serialized_literal(value: object) -> None:
+    stack: list[tuple[object, int]] = [(value, 0)]
+    seen: set[int] = set()
+    nodes = 0
+    while stack:
+        current, depth = stack.pop()
+        nodes += 1
+        if nodes > MAX_POLICY_LITERAL_NODES:
+            raise PolicySchemaError("literal value exceeds the maximum node count.")
+        if depth > MAX_POLICY_CONDITION_DEPTH:
+            raise PolicySchemaError("literal value exceeds the maximum nesting depth.")
+        if current is None or isinstance(current, str | bool | int):
+            continue
+        if isinstance(current, float):
+            if not isfinite(current):
+                raise PolicySchemaError("literal numbers must be finite.")
+            continue
+        if isinstance(current, Mapping):
+            identity = id(current)
+            if identity in seen:
+                raise PolicySchemaError(
+                    "literal values must not contain shared or cyclic containers."
+                )
+            seen.add(identity)
+            if not all(isinstance(key, str) for key in current):
+                raise PolicySchemaError("literal object keys must be strings.")
+            stack.extend((child, depth + 1) for child in current.values())
+            continue
+        if isinstance(current, list):
+            identity = id(current)
+            if identity in seen:
+                raise PolicySchemaError(
+                    "literal values must not contain shared or cyclic containers."
+                )
+            seen.add(identity)
+            stack.extend((child, depth + 1) for child in current)
+            continue
+        raise PolicySchemaError("literal values must contain only JSON-compatible data.")
+
+
 def operand_from_dict(document: Mapping[str, object]) -> Operand:
     has_source = "source" in document
     has_value = "value" in document
@@ -653,7 +871,12 @@ def operand_from_dict(document: Mapping[str, object]) -> Operand:
         raise PolicySchemaError("An operand must contain exactly one of source or value.")
     if has_value:
         _check_keys(document, allowed={"value"}, field_name="operand")
-        return Literal(document["value"])
+        value = document["value"]
+        _validate_serialized_literal(value)
+        try:
+            return Literal(value)
+        except (TypeError, ValueError) as error:
+            raise PolicySchemaError("literal value could not be safely normalized.") from error
     _check_keys(document, allowed={"source", "path"}, field_name="operand")
     try:
         source = AttributeSource(_string(document.get("source"), "operand.source"))
@@ -667,6 +890,11 @@ def operand_from_dict(document: Mapping[str, object]) -> Operand:
 
 
 def condition_from_dict(document: Mapping[str, object]) -> Condition:
+    _validate_condition_complexity(document)
+    return _condition_from_dict(document)
+
+
+def _condition_from_dict(document: Mapping[str, object]) -> Condition:
     condition_type = _string(document.get("type"), "condition.type")
     if condition_type == "comparison":
         _check_keys(
@@ -693,10 +921,11 @@ def condition_from_dict(document: Mapping[str, object]) -> Condition:
             field_name=f"{condition_type} condition",
         )
         raw_conditions = document.get("conditions")
-        if not isinstance(raw_conditions, Sequence) or isinstance(raw_conditions, (str, bytes)):
+        if not isinstance(raw_conditions, Sequence) or isinstance(raw_conditions, str | bytes):
             raise PolicySchemaError("condition.conditions must be an array.")
         children = tuple(
-            condition_from_dict(_mapping(item, "condition.conditions[]")) for item in raw_conditions
+            _condition_from_dict(_mapping(item, "condition.conditions[]"))
+            for item in raw_conditions
         )
         try:
             return AllOf(*children) if condition_type == "all_of" else AnyOf(*children)
@@ -708,14 +937,14 @@ def condition_from_dict(document: Mapping[str, object]) -> Condition:
             allowed={"type", "condition"},
             field_name="not condition",
         )
-        return Not(condition_from_dict(_mapping(document.get("condition"), "condition.condition")))
+        return Not(_condition_from_dict(_mapping(document.get("condition"), "condition.condition")))
     raise PolicySchemaError(f"Unsupported condition type: {condition_type}")
 
 
 def _condition_operators(condition: Condition) -> tuple[str, ...]:
     if isinstance(condition, Comparison):
         return (condition.operator,)
-    if isinstance(condition, (AllOf, AnyOf)):
+    if isinstance(condition, AllOf | AnyOf):
         return tuple(name for child in condition.conditions for name in _condition_operators(child))
     if isinstance(condition, Not):
         return _condition_operators(condition.condition)
@@ -746,7 +975,8 @@ def attribute_policy_from_dict(
     if document.get("type") != "attribute_policy":
         raise PolicySchemaError("type must be 'attribute_policy'.")
     registry = operators or OperatorRegistry()
-    condition = condition_from_dict(_mapping(document.get("condition"), "condition"))
+    condition_document = _mapping(document.get("condition"), "condition")
+    condition = condition_from_dict(condition_document)
     unknown = sorted(
         name for name in _condition_operators(condition) if not registry.contains(name)
     )
@@ -757,7 +987,11 @@ def attribute_policy_from_dict(
     actions: Collection[str] | None
     if raw_actions is None:
         actions = None
-    elif isinstance(raw_actions, Sequence) and not isinstance(raw_actions, (str, bytes)):
+    elif isinstance(raw_actions, Sequence) and not isinstance(raw_actions, str | bytes):
+        if not raw_actions:
+            raise PolicySchemaError("actions must contain at least one action when provided.")
+        if len(raw_actions) > MAX_POLICY_CONDITION_NODES:
+            raise PolicySchemaError("actions exceeds the maximum item count.")
         if not all(isinstance(action, str) and action for action in raw_actions):
             raise PolicySchemaError("actions must contain only non-empty strings.")
         actions = cast(Sequence[str], raw_actions)
@@ -773,15 +1007,20 @@ def attribute_policy_from_dict(
         )
     except ValueError as error:
         raise PolicySchemaError("A policy effect value is unsupported.") from error
-    return AttributePolicy(
-        condition,
-        actions=actions,
-        match_effect=match_effect,
-        on_no_match=on_no_match,
-        on_indeterminate=on_indeterminate,
-        name=_string(document.get("name"), "name"),
-        operators=registry,
-    )
+    try:
+        return AttributePolicy(
+            condition,
+            actions=actions,
+            match_effect=match_effect,
+            on_no_match=on_no_match,
+            on_indeterminate=on_indeterminate,
+            name=_string(document.get("name"), "name"),
+            operators=registry,
+        )
+    except PolicySchemaError:
+        raise
+    except (TypeError, ValueError) as error:
+        raise PolicySchemaError("The policy could not be safely normalized.") from error
 
 
 def dumps_policy(policy: AttributePolicy, *, indent: int | None = 2) -> str:
@@ -793,10 +1032,21 @@ def dumps_policy(policy: AttributePolicy, *, indent: int | None = 2) -> str:
         ) from error
 
 
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Unsupported JSON constant: {value}")
+
+
 def loads_policy(document: str, *, operators: OperatorRegistry | None = None) -> AttributePolicy:
+    if not isinstance(document, str):
+        raise TypeError("policy document must be a string.")
+    if len(document) > MAX_POLICY_DOCUMENT_CHARS:
+        raise PolicySchemaError("The policy document exceeds the size limit.")
     try:
-        value = json.loads(document)
-    except json.JSONDecodeError as error:
+        value = json.loads(
+            document,
+            parse_constant=_reject_json_constant,
+        )
+    except (json.JSONDecodeError, RecursionError, ValueError) as error:
         raise PolicySchemaError("The policy document is not valid JSON.") from error
     return attribute_policy_from_dict(_mapping(value, "policy"), operators=operators)
 

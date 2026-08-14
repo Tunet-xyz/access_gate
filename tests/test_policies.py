@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from access_gate import (
     AuthenticatedPolicy,
     AuthorizationEngine,
@@ -34,6 +36,78 @@ def test_role_policy_can_require_all_roles() -> None:
 
     assert not denied.allowed
     assert allowed.allowed
+
+
+def test_role_policy_rejects_empty_or_malformed_configuration() -> None:
+    with pytest.raises(ValueError, match="at least one"):
+        RolePolicy([], require_all=True)
+    with pytest.raises(TypeError, match="collection"):
+        RolePolicy("admin")
+    with pytest.raises(TypeError, match="non-empty strings"):
+        RolePolicy({"admin", ""})
+    with pytest.raises(ValueError, match="at least one"):
+        RolePolicy({"admin"}, actions=[])
+    with pytest.raises(TypeError, match="collection"):
+        RolePolicy({"admin"}, actions="read")
+    with pytest.raises(TypeError, match="policy name"):
+        RolePolicy({"admin"}, name="")
+    with pytest.raises(TypeError, match="boolean"):
+        RolePolicy({"admin"}, require_all="yes")  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="MissEffect"):
+        RolePolicy({"admin"}, on_miss="deny")  # type: ignore[arg-type]
+
+
+def test_relationship_policy_configuration_is_validated() -> None:
+    with pytest.raises(TypeError, match="owner_attribute"):
+        OwnerPolicy(owner_attribute="")
+    with pytest.raises(TypeError, match="subject_attribute"):
+        TenantBoundaryPolicy(subject_attribute="")
+    with pytest.raises(TypeError, match="resource_attribute"):
+        TenantBoundaryPolicy(resource_attribute="")
+    with pytest.raises(TypeError, match="MissEffect"):
+        OwnerPolicy(on_miss="deny")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="maximum item count"):
+        RolePolicy({f"role-{index}" for index in range(4_097)})
+
+
+def test_owner_policy_requires_authenticated_exact_string_identity() -> None:
+    engine = AuthorizationEngine([OwnerPolicy()])
+
+    anonymous = engine.authorize(
+        Subject("", authenticated=False),
+        "record.read",
+        Resource("record", attributes={"owner_id": ""}),
+    )
+    wrong_type = engine.authorize(
+        Subject("7"),
+        "record.read",
+        Resource("record", attributes={"owner_id": 7}),
+    )
+
+    assert not anonymous.allowed
+    assert not wrong_type.allowed
+
+
+def test_tenant_boundary_rejects_cross_type_identifiers() -> None:
+    engine = AuthorizationEngine([TenantBoundaryPolicy(), RolePolicy({"reader"})])
+
+    decision = engine.authorize(
+        Subject("1", roles={"reader"}, attributes={"tenant_id": "7"}),
+        "record.read",
+        Resource("record", attributes={"tenant_id": 7}),
+    )
+
+    assert not decision.allowed
+    assert decision.policy == "tenant_boundary"
+    assert decision.reason == "Tenant scope is invalid."
+
+    empty = engine.authorize(
+        Subject("1", roles={"reader"}, attributes={"tenant_id": ""}),
+        "record.read",
+        Resource("record", attributes={"tenant_id": ""}),
+    )
+    assert not empty.allowed
+    assert empty.reason == "Tenant scope is invalid."
 
 
 def test_untargeted_action_abstains_and_remains_default_denied() -> None:

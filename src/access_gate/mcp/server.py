@@ -18,6 +18,7 @@ from ..abac import (
 
 PROTOCOL_VERSION = "2025-06-18"
 CONTRACT_PATH = Path(__file__).with_name("agent-contract.json")
+MAX_MESSAGE_CHARS = 1_100_000
 
 
 def load_contract() -> dict[str, Any]:
@@ -215,15 +216,32 @@ def get_prompt(contract: dict[str, Any], name: str, arguments: dict[str, Any]) -
     raise KeyError(name)
 
 
-def handle(message: dict[str, Any], contract: dict[str, Any]) -> dict[str, Any] | None:
+def handle(message: object, contract: dict[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(message, Mapping):
+        return error(None, -32600, "Invalid Request")
+
+    is_notification = "id" not in message
     request_id = message.get("id")
+    if message.get("jsonrpc") != "2.0":
+        return None if is_notification else error(request_id, -32600, "Invalid Request")
+    if not is_notification and (
+        isinstance(request_id, bool) or not isinstance(request_id, str | int | type(None))
+    ):
+        return error(None, -32600, "Invalid Request")
     method = message.get("method")
-    params = message.get("params") or {}
-    if request_id is None:
-        return None
+    if not isinstance(method, str) or not method:
+        return None if is_notification else error(request_id, -32600, "Invalid Request")
+    raw_params = message.get("params", {})
+    if raw_params is None:
+        raw_params = {}
+    if not isinstance(raw_params, Mapping):
+        return None if is_notification else error(request_id, -32602, "Invalid params")
+    params = cast(Mapping[str, Any], raw_params)
+
+    response: dict[str, Any]
     try:
         if method == "initialize":
-            return result(
+            response = result(
                 request_id,
                 {
                     "protocolVersion": PROTOCOL_VERSION,
@@ -235,49 +253,74 @@ def handle(message: dict[str, Any], contract: dict[str, Any]) -> dict[str, Any] 
                     "serverInfo": {
                         "name": contract["server"]["name"],
                         "title": contract["server"].get("title", "AccessGate"),
-                        "version": contract["server"].get("version", "0.2.0"),
+                        "version": contract["server"].get("version", "0.2.0a1"),
                     },
                     "instructions": contract.get("instructions", ""),
                 },
             )
-        if method == "resources/list":
-            return result(request_id, list_resources(contract))
-        if method == "resources/read":
-            return result(request_id, read_resource(contract, params["uri"]))
-        if method == "tools/list":
-            return result(request_id, list_tools(contract))
-        if method == "tools/call":
-            return result(
+        elif method == "resources/list":
+            response = result(request_id, list_resources(contract))
+        elif method == "resources/read":
+            uri = params["uri"]
+            if not isinstance(uri, str):
+                raise TypeError("uri must be a string")
+            response = result(request_id, read_resource(contract, uri))
+        elif method == "tools/list":
+            response = result(request_id, list_tools(contract))
+        elif method == "tools/call":
+            name = params["name"]
+            arguments = params.get("arguments", {})
+            if arguments is None:
+                arguments = {}
+            if not isinstance(name, str) or not isinstance(arguments, Mapping):
+                raise TypeError("tool name and arguments have invalid types")
+            response = result(
                 request_id,
-                call_tool(contract, params["name"], params.get("arguments") or {}),
+                call_tool(contract, name, dict(arguments)),
             )
-        if method == "prompts/list":
-            return result(request_id, list_prompts(contract))
-        if method == "prompts/get":
-            return result(
+        elif method == "prompts/list":
+            response = result(request_id, list_prompts(contract))
+        elif method == "prompts/get":
+            name = params["name"]
+            arguments = params.get("arguments", {})
+            if arguments is None:
+                arguments = {}
+            if not isinstance(name, str) or not isinstance(arguments, Mapping):
+                raise TypeError("prompt name and arguments have invalid types")
+            response = result(
                 request_id,
-                get_prompt(contract, params["name"], params.get("arguments") or {}),
+                get_prompt(contract, name, dict(arguments)),
             )
-        return error(request_id, -32601, f"Method not found: {method}")
-    except KeyError as request_error:
-        return error(request_id, -32602, f"Unknown or invalid parameter: {request_error}")
+        else:
+            response = error(request_id, -32601, f"Method not found: {method}")
+    except (KeyError, TypeError, ValueError) as request_error:
+        response = error(request_id, -32602, f"Unknown or invalid parameter: {request_error}")
     except Exception as internal_error:  # pragma: no cover - defensive protocol boundary
-        return error(
+        response = error(
             request_id,
             -32603,
             "Internal error",
             {"detail": type(internal_error).__name__},
         )
+    return None if is_notification else response
 
 
 def main() -> None:
     contract = load_contract()
-    for line in sys.stdin:
+    while True:
+        line = sys.stdin.readline(MAX_MESSAGE_CHARS + 1)
+        if not line:
+            break
+        if len(line) > MAX_MESSAGE_CHARS:
+            while line and not line.endswith("\n"):
+                line = sys.stdin.readline(MAX_MESSAGE_CHARS + 1)
+            write_message(error(None, -32700, "Message exceeds the size limit"))
+            continue
         if not line.strip():
             continue
         try:
-            message = cast(dict[str, Any], json.loads(line))
-        except json.JSONDecodeError as parse_error:
+            message = json.loads(line)
+        except (json.JSONDecodeError, RecursionError) as parse_error:
             write_message(error(None, -32700, "Parse error", {"detail": str(parse_error)}))
             continue
         response = handle(message, contract)

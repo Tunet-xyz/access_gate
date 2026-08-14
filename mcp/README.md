@@ -31,3 +31,7 @@ The server never authenticates callers, queries production permissions, or
 changes application policy. Policy validation is local and read-only. Agents
 should treat real identity, tenant, resource, and context attributes as
 sensitive and prefer synthetic examples.
+
+The stdio boundary accepts one JSON-RPC object per line, limits each message to
+1,100,000 characters, rejects invalid request shapes without terminating the
+server, and applies the core policy size, nesting, and condition-count limits.

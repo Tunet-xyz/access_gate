@@ -44,6 +44,16 @@ with a denial. `ErrorMode.RAISE` is available when the host application owns
 exception-to-denial handling. `ErrorMode.IGNORE` is explicit and should be used
 only when the associated extension is genuinely non-security-critical.
 
+Decision-strategy exceptions also deny by default. They may be raised to the
+host with `strategy_error_mode=ErrorMode.RAISE`; ignoring a missing final
+decision is intentionally unsupported.
+
+Authorization mappings are recursively snapshotted into immutable containers.
+This prevents caller mutation, policy mutation, or an audit sink from changing
+the facts associated with an in-flight or retained decision.
+Use each value object's `to_dict()` method when an audit or transport integration
+needs ordinary JSON-serializable lists and dictionaries.
+
 ## Stable domain vocabulary
 
 - **Subject:** the actor, including exact roles and application-defined claims.
@@ -62,6 +72,11 @@ RBAC is represented by exact `RolePolicy` rules. ABAC uses an
 namespaces. `OwnerPolicy` and `TenantBoundaryPolicy` cover common relationship
 and scope boundaries. All of them implement the same `Policy` protocol and are
 combined by the same decision strategy.
+
+At engine construction, policies with immutable action targets are indexed.
+Evaluation merges matching targeted policies with global policies in original
+configuration order, so deny-overrides and deterministic first-decision details
+remain stable without scanning unrelated action-specific rules.
 
 ABAC conditions evaluate to `match`, `no_match`, or `indeterminate`. Missing
 attributes, unknown operators, and operator exceptions are indeterminate. A

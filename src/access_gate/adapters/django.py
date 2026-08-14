@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from functools import wraps
+from inspect import isawaitable
 from typing import TypeVar, cast
 
+from asgiref.sync import iscoroutinefunction
 from django.core.exceptions import PermissionDenied
 from django.http import HttpRequest
 
@@ -14,11 +16,18 @@ from ..engine import AuthorizationEngine
 from ..types import AuthorizationRequest, Decision, Resource, Subject
 
 View = TypeVar("View", bound=Callable[..., object])
-SubjectResolverFunction = Callable[[HttpRequest], Subject]
-ResourceResolverFunction = Callable[..., Resource | None]
-ContextResolverFunction = Callable[[HttpRequest], Mapping[str, object]]
-ActionAttributesResolverFunction = Callable[[HttpRequest, str], Mapping[str, object]]
-DenialHandler = Callable[[HttpRequest, Decision], object]
+Resolved = TypeVar("Resolved")
+SubjectResolverFunction = Callable[[HttpRequest], Subject | Awaitable[Subject]]
+ResourceResolverFunction = Callable[..., Resource | None | Awaitable[Resource | None]]
+ContextResolverFunction = Callable[
+    [HttpRequest],
+    Mapping[str, object] | Awaitable[Mapping[str, object]],
+]
+ActionAttributesResolverFunction = Callable[
+    [HttpRequest, str],
+    Mapping[str, object] | Awaitable[Mapping[str, object]],
+]
+DenialHandler = Callable[[HttpRequest, Decision], object | Awaitable[object]]
 
 
 def default_subject_resolver(request: HttpRequest) -> Subject:
@@ -67,6 +76,21 @@ def raise_permission_denied(request: HttpRequest, decision: Decision) -> object:
     raise PermissionDenied(decision.reason)
 
 
+def _sync_value(value: Resolved | Awaitable[Resolved], *, resolver: str) -> Resolved:
+    if isawaitable(value):
+        close = getattr(value, "close", None)
+        if callable(close):
+            close()
+        raise TypeError(f"{resolver} returned an awaitable for a synchronous Django view.")
+    return value
+
+
+async def _async_value(value: Resolved | Awaitable[Resolved]) -> Resolved:
+    if isawaitable(value):
+        return await value
+    return value
+
+
 @dataclass(slots=True)
 class DjangoAuthorizer:
     """Create authorization decorators from a configured engine and resolvers."""
@@ -88,21 +112,64 @@ class DjangoAuthorizer:
         """Decorate a Django view with an authorization requirement."""
 
         def decorator(view: View) -> View:
+            if iscoroutinefunction(view):
+
+                @wraps(view)
+                async def async_wrapped(
+                    request: HttpRequest,
+                    *args: object,
+                    **kwargs: object,
+                ) -> object:
+                    resource = None
+                    if resource_resolver is not None:
+                        resource = await _async_value(resource_resolver(request, *args, **kwargs))
+                    authorization_request = AuthorizationRequest(
+                        subject=await _async_value(self.subject_resolver(request)),
+                        action=action,
+                        resource=resource,
+                        context=await _async_value(self.context_resolver(request)),
+                        action_attributes=await _async_value(
+                            self.action_attributes_resolver(request, action)
+                        ),
+                    )
+                    decision = self.engine.decide(authorization_request)
+                    if not decision.allowed:
+                        return await _async_value(self.denial_handler(request, decision))
+                    async_view = cast(Callable[..., Awaitable[object]], view)
+                    return await async_view(request, *args, **kwargs)
+
+                return cast(View, async_wrapped)
+
             @wraps(view)
             def wrapped(request: HttpRequest, *args: object, **kwargs: object) -> object:
                 resource = None
                 if resource_resolver is not None:
-                    resource = resource_resolver(request, *args, **kwargs)
+                    resource = _sync_value(
+                        resource_resolver(request, *args, **kwargs),
+                        resolver="resource_resolver",
+                    )
                 authorization_request = AuthorizationRequest(
-                    subject=self.subject_resolver(request),
+                    subject=_sync_value(
+                        self.subject_resolver(request),
+                        resolver="subject_resolver",
+                    ),
                     action=action,
                     resource=resource,
-                    context=self.context_resolver(request),
-                    action_attributes=self.action_attributes_resolver(request, action),
+                    context=_sync_value(
+                        self.context_resolver(request),
+                        resolver="context_resolver",
+                    ),
+                    action_attributes=_sync_value(
+                        self.action_attributes_resolver(request, action),
+                        resolver="action_attributes_resolver",
+                    ),
                 )
                 decision = self.engine.decide(authorization_request)
                 if not decision.allowed:
-                    return self.denial_handler(request, decision)
+                    return _sync_value(
+                        self.denial_handler(request, decision),
+                        resolver="denial_handler",
+                    )
                 return view(request, *args, **kwargs)
 
             return cast(View, wrapped)

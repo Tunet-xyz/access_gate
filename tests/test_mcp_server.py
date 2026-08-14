@@ -3,11 +3,13 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from io import StringIO
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+import access_gate.mcp.server as mcp_server
 from access_gate.mcp.server import (
     call_tool,
     get_prompt,
@@ -212,6 +214,78 @@ def test_notifications_and_unknown_methods_follow_json_rpc_rules() -> None:
     assert unknown["error"]["code"] == -32601
 
 
+@pytest.mark.parametrize(
+    "message",
+    [
+        [],
+        {"id": 1, "method": "tools/list"},
+        {"jsonrpc": "2.0", "id": True, "method": "tools/list"},
+        {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": []},
+    ],
+)
+def test_invalid_json_rpc_requests_return_protocol_errors(message: object) -> None:
+    response = handle(message, load_contract())
+
+    assert response is not None
+    assert response["error"]["code"] in {-32600, -32602}
+
+
+def test_null_request_id_is_not_treated_as_a_notification() -> None:
+    response = handle(
+        {"jsonrpc": "2.0", "id": None, "method": "tools/list", "params": {}},
+        load_contract(),
+    )
+
+    assert response is not None
+    assert response["id"] is None
+
+
+def test_invalid_notifications_do_not_receive_responses() -> None:
+    contract = load_contract()
+
+    assert handle({"method": "tools/list"}, contract) is None
+    assert handle({"jsonrpc": "2.0", "method": ""}, contract) is None
+    assert handle({"jsonrpc": "2.0", "method": "tools/list", "params": []}, contract) is None
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        {"jsonrpc": "2.0", "id": 1, "method": "resources/read", "params": {"uri": 1}},
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "list_builtin_operators", "arguments": []},
+        },
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "prompts/get",
+            "params": {"name": "agent_onboarding", "arguments": []},
+        },
+    ],
+)
+def test_method_parameter_types_are_validated(message: object) -> None:
+    response = handle(message, load_contract())
+
+    assert response is not None
+    assert response["error"]["code"] == -32602
+
+
+def test_policy_validator_rejects_excessive_condition_nesting() -> None:
+    policy = valid_policy()
+    condition: object = policy["condition"]
+    for _ in range(65):
+        condition = {"type": "not", "condition": condition}
+    policy["condition"] = condition
+
+    response = call_tool(load_contract(), "validate_policy_document", {"policy": policy})
+
+    assert response["isError"] is True
+    assert "nesting depth" in response["structuredContent"]["errors"][0]
+
+
 def test_source_checkout_stdio_server_smoke() -> None:
     messages: list[dict[str, Any]] = [
         {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
@@ -222,7 +296,11 @@ def test_source_checkout_stdio_server_smoke() -> None:
             "params": {"name": "validate_policy_document", "arguments": {"policy": valid_policy()}},
         },
     ]
-    input_text = "\nnot json\n" + "\n".join(json.dumps(message) for message in messages) + "\n"
+    input_text = (
+        "\nnot json\n[]\n"
+        + "\n".join(json.dumps(message) for message in messages)
+        + "\n"
+    )
 
     completed = subprocess.run(
         [sys.executable, str(ROOT / "mcp" / "server.py")],
@@ -236,5 +314,24 @@ def test_source_checkout_stdio_server_smoke() -> None:
     responses = [json.loads(line) for line in completed.stdout.splitlines()]
 
     assert responses[0]["error"]["code"] == -32700
-    assert responses[1]["result"]["serverInfo"]["name"] == "access-gate-public-contract-mcp"
-    assert responses[2]["result"]["structuredContent"]["valid"] is True
+    assert responses[1]["error"]["code"] == -32600
+    assert responses[2]["result"]["serverInfo"]["name"] == "access-gate-public-contract-mcp"
+    assert responses[3]["result"]["structuredContent"]["valid"] is True
+
+
+def test_main_bounds_messages_and_continues_processing(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: Any,
+) -> None:
+    initialize = json.dumps(
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
+    )
+    oversized = " " * (mcp_server.MAX_MESSAGE_CHARS + 1)
+    monkeypatch.setattr(sys, "stdin", StringIO(f"\n{oversized}\nnot-json\n{initialize}\n"))
+
+    mcp_server.main()
+
+    responses = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert responses[0]["error"]["message"] == "Message exceeds the size limit"
+    assert responses[1]["error"]["code"] == -32700
+    assert responses[2]["result"]["serverInfo"]["version"] == "0.2.0a1"

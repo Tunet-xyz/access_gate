@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from enum import Enum
+from inspect import isawaitable
+from typing import cast
 
 from .exceptions import AuthorizationDenied
 from .protocols import AuditSink, DecisionStrategy, Policy
@@ -29,12 +31,37 @@ class AuthorizationEngine:
         strategy: DecisionStrategy | None = None,
         audit_sink: AuditSink | None = None,
         policy_error_mode: ErrorMode = ErrorMode.DENY,
+        strategy_error_mode: ErrorMode = ErrorMode.DENY,
         audit_error_mode: ErrorMode = ErrorMode.DENY,
     ) -> None:
+        if not isinstance(policy_error_mode, ErrorMode):
+            raise TypeError("policy_error_mode must be an ErrorMode value.")
+        if not isinstance(strategy_error_mode, ErrorMode):
+            raise TypeError("strategy_error_mode must be an ErrorMode value.")
+        if strategy_error_mode is ErrorMode.IGNORE:
+            raise ValueError("strategy_error_mode cannot ignore a missing final decision.")
+        if not isinstance(audit_error_mode, ErrorMode):
+            raise TypeError("audit_error_mode must be an ErrorMode value.")
         self._policies = tuple(policies)
+        global_policies: list[tuple[int, Policy]] = []
+        policies_by_action: dict[str, list[tuple[int, Policy]]] = {}
+        for index, policy in enumerate(self._policies):
+            actions = getattr(policy, "actions", None)
+            if isinstance(actions, frozenset) and actions and all(
+                isinstance(action, str) and action for action in actions
+            ):
+                for action in actions:
+                    policies_by_action.setdefault(action, []).append((index, policy))
+            else:
+                global_policies.append((index, policy))
+        self._global_policies = tuple(global_policies)
+        self._policies_by_action = {
+            action: tuple(indexed) for action, indexed in policies_by_action.items()
+        }
         self._strategy = strategy or DenyOverrides()
         self._audit_sink = audit_sink
         self._policy_error_mode = policy_error_mode
+        self._strategy_error_mode = strategy_error_mode
         self._audit_error_mode = audit_error_mode
 
     @property
@@ -43,9 +70,12 @@ class AuthorizationEngine:
 
     def decide(self, request: AuthorizationRequest) -> Decision:
         decisions: list[Decision] = []
-        for policy in self._policies:
+        for policy in self._policies_for_action(request.action):
             try:
                 decision = policy.evaluate(request)
+                if decision is not None and not isinstance(decision, Decision):
+                    self._close_awaitable(decision)
+                    raise TypeError("A policy returned an invalid decision value.")
             except Exception as error:
                 if self._policy_error_mode is ErrorMode.RAISE:
                     raise
@@ -61,8 +91,25 @@ class AuthorizationEngine:
             if decision is not None:
                 decisions.append(decision)
 
-        final = self._strategy.combine(request, decisions)
+        try:
+            final = self._strategy.combine(request, decisions)
+            if not isinstance(final, Decision):
+                self._close_awaitable(final)
+                raise TypeError("The decision strategy returned an invalid value.")
+        except Exception as error:
+            if self._strategy_error_mode is ErrorMode.RAISE:
+                raise
+            final = Decision.deny(
+                "The decision strategy failed.",
+                policy="access_gate.strategy",
+                metadata={"error_type": type(error).__name__},
+            )
         return self._record(request, final)
+
+    def decide_many(self, requests: Iterable[AuthorizationRequest]) -> tuple[Decision, ...]:
+        """Evaluate a batch while preserving request order and audit behavior."""
+
+        return tuple(self.decide(request) for request in requests)
 
     def authorize(
         self,
@@ -97,7 +144,14 @@ class AuthorizationEngine:
         if self._audit_sink is None:
             return decision
         try:
-            self._audit_sink.record(request, decision)
+            audit_record = cast(
+                Callable[[AuthorizationRequest, Decision], object],
+                self._audit_sink.record,
+            )
+            audit_result = audit_record(request, decision)
+            if audit_result is not None:
+                self._close_awaitable(audit_result)
+                raise TypeError("The audit sink returned an invalid value.")
         except Exception as error:
             if self._audit_error_mode is ErrorMode.RAISE:
                 raise
@@ -108,3 +162,31 @@ class AuthorizationEngine:
                     metadata={"error_type": type(error).__name__},
                 )
         return decision
+
+    @staticmethod
+    def _close_awaitable(value: object) -> None:
+        if not isawaitable(value):
+            return
+        close = getattr(value, "close", None)
+        if callable(close):
+            close()
+
+    def _policies_for_action(self, action: str) -> tuple[Policy, ...]:
+        targeted = self._policies_by_action.get(action, ())
+        if not targeted:
+            return tuple(policy for _, policy in self._global_policies)
+        selected: list[Policy] = []
+        global_index = 0
+        targeted_index = 0
+        while global_index < len(self._global_policies) and targeted_index < len(targeted):
+            global_item = self._global_policies[global_index]
+            targeted_item = targeted[targeted_index]
+            if global_item[0] < targeted_item[0]:
+                selected.append(global_item[1])
+                global_index += 1
+            else:
+                selected.append(targeted_item[1])
+                targeted_index += 1
+        selected.extend(policy for _, policy in self._global_policies[global_index:])
+        selected.extend(policy for _, policy in targeted[targeted_index:])
+        return tuple(selected)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from access_gate import (
@@ -24,6 +26,7 @@ from access_gate import (
     SubjectAttribute,
     attribute_policy_from_dict,
     condition_from_dict,
+    dumps_policy,
     loads_policy,
 )
 
@@ -114,12 +117,12 @@ def test_every_attribute_convenience_method_builds_the_expected_operator() -> No
     ]
 
 
-def test_mapping_membership_is_exact_and_non_collections_do_not_intersect() -> None:
+def test_mapping_membership_is_exact_and_non_collections_are_indeterminate() -> None:
     value = request(context={"mapping": {"tenant": 1}, "number": 7})
 
     assert state(ContextAttribute("mapping").contains("tenant"), value) is ConditionState.MATCH
-    assert state(ContextAttribute("number").intersects([7]), value) is ConditionState.NO_MATCH
-    assert state(ContextAttribute("number").subset_of([7]), value) is ConditionState.NO_MATCH
+    assert state(ContextAttribute("number").intersects([7]), value) is ConditionState.INDETERMINATE
+    assert state(ContextAttribute("number").subset_of([7]), value) is ConditionState.INDETERMINATE
 
 
 def test_comparison_constructor_rejects_invalid_shapes() -> None:
@@ -153,6 +156,14 @@ def test_operator_registry_can_replace_explicitly_and_rejects_non_callables() ->
         OperatorRegistry(include_builtins=False).evaluate("missing", 1, 1)
 
 
+def test_policy_operator_registry_is_frozen_after_construction() -> None:
+    policy = AttributePolicy(ContextAttribute("value").equals("trusted"))
+
+    assert policy.operators.frozen
+    with pytest.raises(TypeError, match="frozen"):
+        policy.operators.register("eq", lambda left, right: True, replace=True)
+
+
 def test_combinator_remaining_states_and_serialization() -> None:
     value = request(context={"truth": True, "false": False})
     indeterminate_all = AllOf(
@@ -173,6 +184,40 @@ def test_combinator_remaining_states_and_serialization() -> None:
     assert indeterminate_all.to_dict()["type"] == "all_of"
     assert no_match_any.to_dict()["type"] == "any_of"
     assert negated_match.to_dict()["type"] == "not"
+
+
+def test_combinators_short_circuit_after_a_decisive_result() -> None:
+    class MustNotRun:
+        def evaluate(self, request: AuthorizationRequest, operators: OperatorRegistry) -> None:
+            raise AssertionError("condition should have been short-circuited")
+
+        def to_dict(self) -> dict[str, object]:
+            return {"type": "comparison"}
+
+    value = request(context={"truth": True})
+    all_of = AllOf(ContextAttribute("truth").equals(False), MustNotRun())  # type: ignore[arg-type]
+    any_of = AnyOf(ContextAttribute("truth").equals(True), MustNotRun())  # type: ignore[arg-type]
+
+    assert state(all_of, value) is ConditionState.NO_MATCH
+    assert state(any_of, value) is ConditionState.MATCH
+
+
+def test_large_primitive_collection_comparison_remains_exact() -> None:
+    value = request(context={"left": list(range(2_000)), "right": list(range(2_000, 4_000))})
+
+    assert state(ContextAttribute("left").intersects(ContextAttribute("right")), value) is (
+        ConditionState.NO_MATCH
+    )
+
+
+def test_complex_collection_comparison_budget_fails_closed() -> None:
+    left = [{"value": index} for index in range(317)]
+    right = [{"value": index} for index in range(317, 634)]
+    value = request(context={"left": left, "right": right})
+
+    assert state(ContextAttribute("left").intersects(ContextAttribute("right")), value) is (
+        ConditionState.INDETERMINATE
+    )
 
 
 def test_policy_can_explicitly_abstain_on_indeterminate() -> None:
@@ -255,3 +300,54 @@ def test_invalid_condition_documents_are_rejected(condition: dict[str, object]) 
 def test_loads_policy_rejects_non_object_json() -> None:
     with pytest.raises(PolicySchemaError, match="must be an object"):
         loads_policy("[]")
+
+
+def test_all_serialized_policy_entry_points_enforce_complexity_limits() -> None:
+    condition: dict[str, object] = {
+        "type": "comparison",
+        "operator": "eq",
+        "left": {"value": 1},
+        "right": {"value": 1},
+    }
+    for _ in range(65):
+        condition = {"type": "not", "condition": condition}
+
+    with pytest.raises(PolicySchemaError, match="nesting depth"):
+        condition_from_dict(condition)
+
+    document = complete_document()
+    document["actions"] = []
+    with pytest.raises(PolicySchemaError, match="at least one"):
+        attribute_policy_from_dict(document)
+
+    document["actions"] = [f"action-{index}" for index in range(4_097)]
+    with pytest.raises(PolicySchemaError, match="maximum item count"):
+        attribute_policy_from_dict(document)
+
+
+def test_serialized_literals_require_bounded_finite_json_data() -> None:
+    document = complete_document()
+    condition = document["condition"]
+    assert isinstance(condition, dict)
+    condition["right"] = {"value": float("nan")}
+
+    with pytest.raises(PolicySchemaError, match="finite"):
+        attribute_policy_from_dict(document)
+    with pytest.raises(PolicySchemaError, match="valid JSON"):
+        loads_policy(json.dumps(document))
+
+    condition["right"] = {"value": ("tuple",)}
+    with pytest.raises(PolicySchemaError, match="JSON-compatible"):
+        attribute_policy_from_dict(document)
+
+    shared: list[object] = [1]
+    condition["right"] = {"value": [shared, shared]}
+    with pytest.raises(PolicySchemaError, match="shared or cyclic"):
+        attribute_policy_from_dict(document)
+
+
+def test_non_json_dsl_collection_literal_is_not_silently_changed() -> None:
+    policy = AttributePolicy(ContextAttribute("scopes").equals({"read"}))
+
+    with pytest.raises(PolicySchemaError, match="not JSON serializable"):
+        dumps_policy(policy)

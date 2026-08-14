@@ -45,10 +45,15 @@ matches, otherwise indeterminate if any child is indeterminate.
 | `gt`, `gte`, `lt`, `lte` | Numeric comparison excluding booleans and strings. |
 | `exists`, `not_exists` | Explicit presence or absence checks. |
 
-Strings are not treated as collections. Consequently, `"admin" in
-"administrator"` and `"administrator" contains "admin"` are false rather than
-substring matches. Register an explicitly named custom operator if a domain
-requires different semantics.
+Strings are not treated as collections. Passing a string or scalar where a
+collection is required produces an indeterminate result rather than a substring
+match or a negated grant. Register an explicitly named custom operator if a
+domain requires different semantics.
+
+Collection operands are limited to 10,000 items. Primitive intersections and
+subset checks use exact, type-aware set keys. Comparisons involving complex,
+unhashable values retain exact semantics but are capped at 100,000 candidate
+pairs; exceeding the limit is indeterminate and therefore denies by default.
 
 ## Grant and boundary policies
 
@@ -99,6 +104,10 @@ Names must use lowercase letters, digits, and underscores. `exists` and
 token verification, database queries, or mutable application state. Resolve and
 validate those facts before authorization.
 
+The copied registry is frozen when attached to a policy. Build and test the
+registry before policy construction; attempts to replace operators afterward
+raise `TypeError`.
+
 ## Serialized policy format
 
 `AttributePolicy.to_dict()` emits a complete `access_gate.policy.v1` document.
@@ -108,6 +117,10 @@ operators absent from the supplied registry.
 
 The JSON Schema is packaged at `schema/abac-policy-v1.json` and available from
 `load_policy_schema()` and the AccessGate MCP server.
+
+Policy JSON is limited to 1,000,000 characters, 64 nested condition or literal
+levels, 4,096 condition nodes/actions, and 100,000 literal nodes. Deployments
+should apply a smaller transport limit when their policy domain permits it.
 
 Custom operators remain code and are not embedded in a policy document. A host
 must explicitly supply the required registry when loading such a policy.

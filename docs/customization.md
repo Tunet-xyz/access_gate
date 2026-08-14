@@ -9,6 +9,8 @@ Implement `SubjectResolver` and `ResourceResolver` at the application boundary.
 Resolvers should validate claim types, normalize identifiers once, and reject
 ambiguous or missing security-critical scope. Never place token verification in
 a policy; verification must happen before a `Subject` is created.
+Built-in ownership and tenant policies require non-empty string identifiers;
+they never coerce integers, booleans, or other malformed values into a match.
 
 ## Policies
 
@@ -29,10 +31,18 @@ Boundary policies should deny violations and abstain on success. Grant policies
 should allow a positive match and either deny or abstain on a miss, according to
 whether another grant is valid for the same action.
 
+Custom policies may expose `actions: frozenset[str] | None`. A non-empty,
+validated frozenset opts the policy into engine action indexing; `None` or an
+unrecognized shape remains a global policy. The policy must still abstain when
+called directly with an unrelated action. `FunctionPolicy(actions=...)` handles
+both behaviors automatically.
+
 Declarative policies can use `AttributePolicy`. Custom operands implement the
 `Operand` protocol; custom operators are registered on an `OperatorRegistry`
 instance supplied to a policy. The policy copies that registry, preventing
-later application mutation from changing an already-configured policy.
+later application mutation from changing an already-configured policy. The
+policy-owned copy is frozen as well; operator registration is a configuration
+phase operation, not a runtime hot-reload mechanism.
 
 Custom operators must be deterministic, side-effect free, quick to evaluate,
 and return a boolean. Exceptions become redacted indeterminate outcomes. Do not
@@ -56,6 +66,11 @@ layer converts the exception to a denial and records the operational failure.
 Adapters should be thin: obtain already-authenticated identity, resolve domain
 objects, call the engine once, and translate denial into the framework's normal
 403 mechanism. Business policy belongs in policies, not decorators or middleware.
+
+The Django adapter preserves both synchronous and asynchronous view behavior.
+Resolvers and denial handlers used by an async view may return awaitables. A
+synchronous view rejects an awaitable resolver result instead of leaking a
+coroutine or silently bypassing enforcement.
 
 ## Serialized policies
 

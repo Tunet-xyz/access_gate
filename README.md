@@ -24,12 +24,19 @@ trusted; AccessGate decides what that caller is allowed to do.
   use substring matching.
 - **Safe ABAC:** missing attributes and operator failures are indeterminate,
   cannot be negated into access, and deny by default.
+- **Immutable inputs:** request attributes, literal values, and decision metadata
+  are recursively snapshotted before evaluation or audit.
+- **Bounded evaluation:** serialized policies, condition trees, MCP messages, and
+  collection workloads have explicit denial-of-service limits.
 - **No expression evaluation:** declarative policies use registered operators
   and mapping-only attribute traversal—never Python `eval` or object traversal.
 - **Framework-neutral core:** no runtime dependencies and no ORM, token, or user
   model assumptions.
 - **Custom from day one:** policies, decision strategies, identity/resource
   resolvers, audit sinks, and framework adapters are public extension points.
+
+`Subject`, `Resource`, `AuthorizationRequest`, and `Decision` expose `to_dict()`
+for JSON-friendly snapshots of their otherwise immutable data.
 
 ## Installation
 
@@ -141,6 +148,10 @@ policy = FunctionPolicy("published", published_incidents)
 
 A policy returns an allow/deny `Decision`, or `None` to abstain. Custom decision
 strategies can replace deny-overrides where a domain needs different semantics.
+Policies exposing a validated `frozenset` in an `actions` attribute are indexed
+by the engine and skipped for unrelated actions. `FunctionPolicy` supports this
+directly through its `actions` argument. Use `decide_many()` for ordered batch
+evaluation; every request still receives its own decision and audit event.
 
 For mixed RBAC/ABAC grants, configure alternative grant policies to abstain on
 a miss. Explicit boundary denials still override every grant.
@@ -164,6 +175,8 @@ The default Django subject resolver only reads `pk`, `is_authenticated`,
 `access_gate_roles`, and `access_gate_attributes`. Real applications should
 normally provide a resolver that validates and maps their exact identity claims.
 The adapter also accepts custom context and action-attribute resolvers for ABAC.
+Synchronous and asynchronous Django views are supported. Async views may use
+awaitable subject, resource, context, action-attribute, and denial resolvers.
 
 ## MCP server
 

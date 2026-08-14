@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Native async Django view support, including awaitable adapter resolvers and
+  denial handlers.
+- Bounded policy documents, condition depth, condition count, MCP messages, and
+  collection evaluation workloads.
+- Fail-closed decision-strategy error handling with an explicit
+  `strategy_error_mode`.
+
+### Changed
+
+- Authorization inputs, literal values, and decision metadata are recursively
+  snapshotted into immutable containers.
+- Operator registries attached to policies are frozen against later mutation.
+- Collection operators now classify invalid operand shapes as indeterminate.
+- Primitive collection intersection and subset checks use linear-time set
+  comparisons, and decisive condition branches short-circuit safely.
+- Policies declaring immutable action targets are indexed by action while
+  preserving configured evaluation order; `decide_many()` provides ordered
+  batch evaluation with per-request auditing.
+- GitHub Actions are commit-pinned, vulnerability auditing is blocking, and
+  package building is isolated from the PyPI publishing identity.
+
+### Security
+
+- Empty role requirements and malformed policy names/actions are rejected at
+  construction time.
+- Invalid policy results, invalid error-mode configuration, and strategy
+  exceptions can no longer create ambiguous authorization behavior.
+- Invalid or oversized JSON-RPC messages no longer terminate the MCP server.
+
 ## [0.2.0a1] - 2026-08-11
 
 ### Added
