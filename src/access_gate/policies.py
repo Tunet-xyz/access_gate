@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection
+import math
+import time
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -240,3 +242,105 @@ class AuthenticatedPolicy:
         if request.subject.authenticated:
             return Decision.allow("The subject is authenticated.", policy=self.name)
         return Decision.deny("Authentication is required.", policy=self.name)
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class SessionAssurancePolicy:
+    """Deny unless a fresh SessionArmor assurance record matches the subject.
+
+    This is a boundary policy: on success it abstains so application policies
+    remain responsible for granting access. No dependency on SessionArmor is
+    required; the versioned interoperability record travels in request context.
+    """
+
+    actions: frozenset[str] | None
+    context_key: str
+    max_verification_age: int
+    clock_skew: int
+    require_binding: bool
+    require_claim_binding: bool
+    name: str
+    clock: Callable[[], float]
+
+    def __init__(
+        self,
+        *,
+        actions: Collection[str] | None = None,
+        context_key: str = "session_assurance",
+        max_verification_age: int = 30,
+        clock_skew: int = 5,
+        require_binding: bool = True,
+        require_claim_binding: bool = True,
+        name: str = "session_assurance",
+        clock: Callable[[], float] = time.time,
+    ) -> None:
+        object.__setattr__(self, "actions", _actions(actions))
+        if not isinstance(context_key, str) or not context_key or len(context_key) > 128:
+            raise TypeError("context_key must be a bounded non-empty string.")
+        for field_name, value, minimum in (
+            ("max_verification_age", max_verification_age, 1),
+            ("clock_skew", clock_skew, 0),
+        ):
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or not minimum <= value <= 3600
+            ):
+                raise ValueError(f"{field_name} is outside its secure range.")
+        if not isinstance(require_binding, bool) or not isinstance(require_claim_binding, bool):
+            raise TypeError("session assurance requirements must be booleans.")
+        if not callable(clock):
+            raise TypeError("clock must be callable.")
+        object.__setattr__(self, "context_key", context_key)
+        object.__setattr__(self, "max_verification_age", max_verification_age)
+        object.__setattr__(self, "clock_skew", clock_skew)
+        object.__setattr__(self, "require_binding", require_binding)
+        object.__setattr__(self, "require_claim_binding", require_claim_binding)
+        object.__setattr__(self, "name", _policy_name(name))
+        object.__setattr__(self, "clock", clock)
+
+    def evaluate(self, request: AuthorizationRequest) -> Decision | None:
+        if not _targets(request.action, self.actions):
+            return None
+        evidence = request.context.get(self.context_key)
+        if not isinstance(evidence, Mapping):
+            return self._deny("missing")
+        if evidence.get("schema") != "session-armor.assurance/v1":
+            return self._deny("unsupported_schema")
+        if evidence.get("status") != "trusted":
+            return self._deny("untrusted")
+        if evidence.get("subject_identifier") != request.subject.identifier:
+            return self._deny("subject_mismatch")
+        if not isinstance(evidence.get("session_identifier"), str) or not evidence.get(
+            "session_identifier"
+        ):
+            return self._deny("missing_session_identifier")
+        verified_at = evidence.get("verified_at")
+        if isinstance(verified_at, bool) or not isinstance(verified_at, int | float):
+            return self._deny("invalid_verification_time")
+        verified = float(verified_at)
+        now = float(self.clock())
+        if not math.isfinite(verified) or not math.isfinite(now):
+            return self._deny("invalid_verification_time")
+        age = now - verified
+        if age < -self.clock_skew:
+            return self._deny("future_verification")
+        if age > self.max_verification_age:
+            return self._deny("stale_verification")
+        factors = evidence.get("binding_factors")
+        if self.require_binding and (
+            not isinstance(factors, tuple | list)
+            or not factors
+            or not all(isinstance(value, str) and value for value in factors)
+        ):
+            return self._deny("binding_required")
+        if self.require_claim_binding and evidence.get("claims_bound") is not True:
+            return self._deny("claim_binding_required")
+        return None
+
+    def _deny(self, code: str) -> Decision:
+        return Decision.deny(
+            "Trusted session assurance is required.",
+            policy=self.name,
+            metadata={"assurance_failure": code},
+        )

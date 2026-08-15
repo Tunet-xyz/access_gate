@@ -46,6 +46,7 @@ from .policies import (
     MissEffect,
     OwnerPolicy,
     RolePolicy,
+    SessionAssurancePolicy,
     TenantBoundaryPolicy,
 )
 from .protocols import (
@@ -98,6 +99,7 @@ __all__ = [
     "ResourceAttribute",
     "ResourceResolver",
     "RolePolicy",
+    "SessionAssurancePolicy",
     "Subject",
     "SubjectAttribute",
     "SubjectResolver",

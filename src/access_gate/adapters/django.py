@@ -15,6 +15,8 @@ from django.http import HttpRequest
 from ..engine import AuthorizationEngine
 from ..types import AuthorizationRequest, Decision, Resource, Subject
 
+_SESSION_ASSURANCE_CONTEXT_KEY = "session_assurance"
+
 View = TypeVar("View", bound=Callable[..., object])
 Resolved = TypeVar("Resolved")
 SubjectResolverFunction = Callable[[HttpRequest], Subject | Awaitable[Subject]]
@@ -57,10 +59,22 @@ def default_subject_resolver(request: HttpRequest) -> Subject:
 
 
 def default_context_resolver(request: HttpRequest) -> Mapping[str, object]:
-    return {
+    context: dict[str, object] = {
         "method": getattr(request, "method", ""),
         "path": getattr(request, "path", ""),
     }
+    assurance = getattr(request, "session_assurance", None)
+    serializer = getattr(assurance, "to_authorization_context", None)
+    if callable(serializer):
+        try:
+            serialized = serializer()
+            if isinstance(serialized, Mapping):
+                context[_SESSION_ASSURANCE_CONTEXT_KEY] = dict(serialized)
+            else:
+                context[_SESSION_ASSURANCE_CONTEXT_KEY] = {"schema": "invalid"}
+        except Exception:
+            context[_SESSION_ASSURANCE_CONTEXT_KEY] = {"schema": "invalid"}
+    return context
 
 
 def default_action_attributes_resolver(
