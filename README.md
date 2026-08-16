@@ -12,6 +12,22 @@ It is complementary to authentication and session-security packages such as
 SessionArmor. Those establish who the caller is and whether the session can be
 trusted; AccessGate decides what that caller is allowed to do.
 
+For Django, the integration is explicit and deny-only:
+
+```python
+from access_gate import AuthorizationEngine, RolePolicy, SessionAssurancePolicy
+
+engine = AuthorizationEngine([
+    SessionAssurancePolicy(actions={"records.read"}),
+    RolePolicy({"records_reader"}, actions={"records.read"}),
+])
+```
+
+The default Django adapter carries SessionArmor's versioned
+`request.session_assurance` evidence into authorization context without a hard
+package dependency. Missing, stale, malformed, future-dated, unbound, or
+subject-mismatched evidence denies; valid evidence never grants by itself.
+
 > **Status:** early alpha. Security controls and assurance evidence are being
 > developed rigorously, but the public API may evolve before 1.0. This package
 > has not received an independent audit or any government/NATO accreditation.

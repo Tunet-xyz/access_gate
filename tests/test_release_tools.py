@@ -13,8 +13,8 @@ def test_spdx_sbom_binds_exact_release_artifacts(
     tmp_path: Path,
     monkeypatch: object,
 ) -> None:
-    wheel = tmp_path / "accessgate-0.2.0a1-py3-none-any.whl"
-    sdist = tmp_path / "accessgate-0.2.0a1.tar.gz"
+    wheel = tmp_path / "accessgate-0.3.0a1-py3-none-any.whl"
+    sdist = tmp_path / "accessgate-0.3.0a1.tar.gz"
     wheel.write_bytes(b"wheel")
     sdist.write_bytes(b"sdist")
     monkeypatch.setenv("GITHUB_SHA", "a" * 40)  # type: ignore[attr-defined]

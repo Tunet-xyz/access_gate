@@ -21,6 +21,15 @@ class MissEffect(str, Enum):
 _MAX_CONFIGURED_NAMES = 4_096
 
 
+def _assurance_timestamp(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    result = float(value)
+    if not math.isfinite(result) or result < 0:
+        return None
+    return result
+
+
 def _targets(action: str, actions: frozenset[str] | None) -> bool:
     return actions is None or action in actions
 
@@ -302,6 +311,8 @@ class SessionAssurancePolicy:
     def evaluate(self, request: AuthorizationRequest) -> Decision | None:
         if not _targets(request.action, self.actions):
             return None
+        if not request.subject.authenticated or not request.subject.identifier:
+            return self._deny("unauthenticated_subject")
         evidence = request.context.get(self.context_key)
         if not isinstance(evidence, Mapping):
             return self._deny("missing")
@@ -311,17 +322,32 @@ class SessionAssurancePolicy:
             return self._deny("untrusted")
         if evidence.get("subject_identifier") != request.subject.identifier:
             return self._deny("subject_mismatch")
-        if not isinstance(evidence.get("session_identifier"), str) or not evidence.get(
-            "session_identifier"
+        session_identifier = evidence.get("session_identifier")
+        if (
+            not isinstance(session_identifier, str)
+            or not session_identifier
+            or len(session_identifier) > 512
         ):
             return self._deny("missing_session_identifier")
-        verified_at = evidence.get("verified_at")
-        if isinstance(verified_at, bool) or not isinstance(verified_at, int | float):
+        established = _assurance_timestamp(evidence.get("established_at"))
+        verified = _assurance_timestamp(evidence.get("verified_at"))
+        last_activity = _assurance_timestamp(evidence.get("last_activity_at"))
+        if established is None or verified is None or last_activity is None:
             return self._deny("invalid_verification_time")
-        verified = float(verified_at)
-        now = float(self.clock())
-        if not math.isfinite(verified) or not math.isfinite(now):
+        try:
+            clock_value = self.clock()
+            if isinstance(clock_value, bool):
+                raise TypeError
+            now = float(clock_value)
+        except (TypeError, ValueError, OverflowError):
             return self._deny("invalid_verification_time")
+        if not math.isfinite(now) or now < 0:
+            return self._deny("invalid_verification_time")
+        if (
+            established > last_activity + self.clock_skew
+            or last_activity > verified + self.clock_skew
+        ):
+            return self._deny("invalid_session_timeline")
         age = now - verified
         if age < -self.clock_skew:
             return self._deny("future_verification")
@@ -331,7 +357,11 @@ class SessionAssurancePolicy:
         if self.require_binding and (
             not isinstance(factors, tuple | list)
             or not factors
-            or not all(isinstance(value, str) and value for value in factors)
+            or len(factors) > 32
+            or not all(
+                isinstance(value, str) and value and len(value) <= 64 for value in factors
+            )
+            or len(set(factors)) != len(factors)
         ):
             return self._deny("binding_required")
         if self.require_claim_binding and evidence.get("claims_bound") is not True:

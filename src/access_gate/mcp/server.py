@@ -299,7 +299,7 @@ def handle(message: object, contract: dict[str, Any]) -> dict[str, Any] | None:
                     "serverInfo": {
                         "name": contract["server"]["name"],
                         "title": contract["server"].get("title", "AccessGate"),
-                        "version": contract["server"].get("version", "0.2.0a1"),
+                        "version": contract["server"].get("version", "0.3.0a1"),
                     },
                     "instructions": contract.get("instructions", ""),
                 },

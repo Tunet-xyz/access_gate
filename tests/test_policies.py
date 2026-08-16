@@ -5,13 +5,93 @@ import pytest
 from access_gate import (
     AuthenticatedPolicy,
     AuthorizationEngine,
+    AuthorizationRequest,
     MissEffect,
     OwnerPolicy,
     Resource,
     RolePolicy,
+    SessionAssurancePolicy,
     Subject,
     TenantBoundaryPolicy,
 )
+
+
+def _session_context(now: float = 100.0, **overrides: object) -> dict[str, object]:
+    evidence: dict[str, object] = {
+        "schema": "session-armor.assurance/v1",
+        "status": "trusted",
+        "reason": "validated",
+        "subject_identifier": "1",
+        "session_identifier": "session-token",
+        "established_at": 1.0,
+        "verified_at": now,
+        "last_activity_at": now,
+        "binding_factors": ["ip", "user_agent"],
+        "claims_bound": True,
+    }
+    evidence.update(overrides)
+    return {"session_assurance": evidence}
+
+
+def test_session_assurance_policy_abstains_for_fresh_matching_evidence() -> None:
+    policy = SessionAssurancePolicy(clock=lambda: 100.0)
+    request = AuthorizationRequest(Subject("1"), "read", context=_session_context())
+    assert policy.evaluate(request) is None
+
+
+@pytest.mark.parametrize(
+    ("context", "failure"),
+    [
+        ({}, "missing"),
+        (_session_context(schema="invented"), "unsupported_schema"),
+        (_session_context(status="unverified"), "untrusted"),
+        (_session_context(subject_identifier="2"), "subject_mismatch"),
+        (_session_context(session_identifier=""), "missing_session_identifier"),
+        (_session_context(session_identifier="x" * 513), "missing_session_identifier"),
+        (_session_context(established_at=None), "invalid_verification_time"),
+        (_session_context(verified_at="now"), "invalid_verification_time"),
+        (
+            _session_context(
+                established_at=0.0,
+                last_activity_at=0.0,
+                verified_at=0.0,
+            ),
+            "stale_verification",
+        ),
+        (_session_context(verified_at=200.0), "future_verification"),
+        (_session_context(established_at=106.0), "invalid_session_timeline"),
+        (_session_context(last_activity_at=106.0), "invalid_session_timeline"),
+        (_session_context(binding_factors=[]), "binding_required"),
+        (_session_context(binding_factors=["ip", "ip"]), "binding_required"),
+        (_session_context(binding_factors=["x" * 65]), "binding_required"),
+        (_session_context(claims_bound=False), "claim_binding_required"),
+    ],
+)
+def test_session_assurance_policy_denies_malformed_or_untrusted_evidence(
+    context: dict[str, object], failure: str
+) -> None:
+    policy = SessionAssurancePolicy(clock=lambda: 100.0)
+    request = AuthorizationRequest(Subject("1"), "read", context=context)
+    decision = policy.evaluate(request)
+    assert decision is not None
+    assert not decision.allowed
+    assert decision.metadata["assurance_failure"] == failure
+
+
+def test_session_assurance_policy_denies_an_unauthenticated_subject() -> None:
+    policy = SessionAssurancePolicy(clock=lambda: 100.0)
+    request = AuthorizationRequest(
+        Subject("1", authenticated=False), "read", context=_session_context()
+    )
+    decision = policy.evaluate(request)
+    assert decision is not None
+    assert decision.metadata["assurance_failure"] == "unauthenticated_subject"
+
+
+def test_session_assurance_policy_cannot_grant_by_itself() -> None:
+    engine = AuthorizationEngine([SessionAssurancePolicy(clock=lambda: 100.0)])
+    decision = engine.authorize(Subject("1"), "read", context=_session_context())
+    assert not decision.allowed
 
 
 def test_role_names_are_matched_exactly() -> None:

@@ -19,8 +19,34 @@ from access_gate import (  # noqa: E402
 )
 from access_gate.adapters.django import (  # noqa: E402
     DjangoAuthorizer,
+    default_context_resolver,
     default_subject_resolver,
 )
+
+
+class _Assurance:
+    def to_authorization_context(self) -> dict[str, str]:
+        return {"schema": "session-armor.assurance/v1", "status": "trusted"}
+
+
+def test_default_context_resolver_includes_sessionarmor_evidence() -> None:
+    request = SimpleNamespace(
+        method="GET", path="/records", session_assurance=_Assurance()
+    )
+    context = default_context_resolver(request)
+    assert context["session_assurance"] == {
+        "schema": "session-armor.assurance/v1",
+        "status": "trusted",
+    }
+
+
+def test_default_context_resolver_contains_broken_assurance_serializer() -> None:
+    class Broken:
+        def to_authorization_context(self) -> dict[str, str]:
+            raise RuntimeError("bad")
+
+    request = SimpleNamespace(method="GET", path="/records", session_assurance=Broken())
+    assert default_context_resolver(request)["session_assurance"] == {"schema": "invalid"}
 
 
 def django_request(*, roles: tuple[str, ...]) -> Any:

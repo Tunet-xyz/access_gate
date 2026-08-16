@@ -9,10 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Exported `SessionAssurancePolicy` as a supported public boundary policy for
+  fresh, subject-bound SessionArmor evidence, with compatibility tests for the
+  duck-typed Django context bridge.
 - Deterministic policy and ordered policy-set fingerprints, externally supplied
   signed-policy verification, and engine-owned policy-set decision identifiers.
 - Property/differential tests, parser fuzz targets, scheduled mutation testing,
   authorization performance budgets, and golden policy-format fixtures.
+
+### Changed
+
+- Package version advanced to `0.3.0a1` for the coordinated session-assurance
+  integration contract.
 - Threat model, assurance case, immutable audit scope, secure-development,
   strict policy migration, and evidence-preserving release procedures.
 - Reproducible release verification, hash-locked build tools, SPDX artifact SBOM,
