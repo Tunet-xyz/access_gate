@@ -70,6 +70,13 @@ For the optional Django adapter:
 pip install "AccessGate[django]"
 ```
 
+The package root remains framework-neutral. Django integration is imported
+explicitly from the adapter namespace:
+
+```python
+from access_gate.adapters.django import DjangoAuthorizer
+```
+
 ## Quick start
 
 ```python
