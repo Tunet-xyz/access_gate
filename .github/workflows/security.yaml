@@ -31,6 +31,9 @@ jobs:
 
       - name: Static security analysis
         run: bandit -r src/access_gate
+      - name: Exclude local package from third-party dependency audit
+        run: pip uninstall --yes AccessGate
+
 
       - name: Dependency vulnerability audit
         run: pip-audit --strict

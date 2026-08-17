@@ -7,7 +7,7 @@ import hashlib
 import json
 import os
 import subprocess
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import cast
 
@@ -50,7 +50,7 @@ def _source_revision(root: Path) -> str:
 def _created_at() -> str:
     epoch = os.environ.get("SOURCE_DATE_EPOCH")
     timestamp = int(epoch) if epoch is not None else 0
-    return datetime.fromtimestamp(timestamp, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.fromtimestamp(timestamp, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def generate_sbom(root: Path, dist: Path) -> dict[str, object]:
