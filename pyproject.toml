@@ -69,7 +69,7 @@ accessgate-mcp = "access_gate.mcp.server:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = [".", "src"]
 addopts = "-q --tb=short"
 
 [tool.ruff]
