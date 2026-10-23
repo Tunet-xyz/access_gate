@@ -35,7 +35,7 @@ extension failures, abstention, and ambiguous results must not create access.
 | Policy literals or supplied values leak through diagnostics | Safe reasons, immutable metadata, policy-document redaction by default | Audit access control, retention, and application-provided reason hygiene |
 | Resource exhaustion through policy JSON or collections | Document, depth, node, action, message, collection and comparison bounds | Transport limits, process limits, rate limiting and capacity planning |
 | Arbitrary code execution through policy expressions | Declarative operators, mapping-only traversal, no `eval` | Custom operators remain trusted code and require review |
-| Supply-chain substitution | Pinned CI actions, locked hashed build tools, reproducible artifacts, checksums, SBOM and attestations | Protected branches/environments, trusted maintainers, tag policy and consumer verification |
+| Supply-chain substitution | Pinned CI actions, locked hashed build tools, reproducible artifacts, checksums, SBOM and PyPI (PEP 740) attestations | Protected branches/environments, trusted maintainers, tag policy and consumer verification |
 
 ## Required invariants
 

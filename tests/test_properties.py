@@ -69,7 +69,41 @@ def test_exact_equality_matches_independent_reference(left: object, right: objec
 
     result = condition.evaluate(request, AttributePolicy(condition).operators)
 
-    assert (result.state.value == "match") is exact_equal(left, right)
+    if left is None and right is None:
+        assert result.state.value == "indeterminate"
+    else:
+        assert (result.state.value == "match") is exact_equal(left, right)
+
+
+def _retyped(value: object, mode: str) -> object:
+    if isinstance(value, bool):
+        return int(value) if mode == "bool_as_int" else value
+    if isinstance(value, int) and mode == "int_as_float" and abs(value) <= 2**53:
+        return float(value)
+    if isinstance(value, list):
+        return [_retyped(item, mode) for item in value]
+    if isinstance(value, dict):
+        return {key: _retyped(item, mode) for key, item in value.items()}
+    return value
+
+
+@settings(max_examples=200, deadline=None)
+@given(JSON_VALUE, st.sampled_from(["same", "bool_as_int", "int_as_float"]))
+def test_nested_equality_matches_independent_reference(value: object, mode: str) -> None:
+    other = _retyped(value, mode)
+    condition = ContextAttribute("left").equals(ContextAttribute("right"))
+    request = AuthorizationRequest(
+        Subject("subject-1"),
+        "compare",
+        context={"left": value, "right": other},
+    )
+
+    result = condition.evaluate(request, AttributePolicy(condition).operators)
+
+    if value is None:
+        assert result.state.value == "indeterminate"
+    else:
+        assert (result.state.value == "match") is exact_equal(value, other)
 
 
 @settings(max_examples=200, deadline=None)

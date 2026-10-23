@@ -16,6 +16,7 @@ from .abac import (
     AttributePolicy,
     OperatorRegistry,
     PolicySchemaError,
+    _validate_lossless_literals,
     attribute_policy_from_dict,
 )
 
@@ -57,6 +58,7 @@ class PolicySignatureVerifier(Protocol):
 
 def _canonical_json_bytes(value: object) -> bytes:
     try:
+        _validate_lossless_literals(value)
         document = json.dumps(
             value,
             allow_nan=False,
@@ -64,9 +66,9 @@ def _canonical_json_bytes(value: object) -> bytes:
             separators=(",", ":"),
             sort_keys=True,
         )
+        return document.encode("utf-8")
     except (TypeError, ValueError) as error:
         raise PolicyIntegrityError("The policy is not canonically serializable.") from error
-    return document.encode("utf-8")
 
 
 def canonical_policy_bytes(policy: AttributePolicy) -> bytes:
@@ -135,8 +137,9 @@ def dumps_signed_policy(policy: AttributePolicy, signer: PolicySigner) -> str:
     key_id = _validated_identifier(signer.key_id, field_name="key_id", max_length=512)
     algorithm = _validated_identifier(signer.algorithm, field_name="algorithm", max_length=128)
     protected = _protected_document(policy, key_id=key_id, algorithm=algorithm)
+    payload = _canonical_json_bytes(protected)
     try:
-        signature = signer.sign(_canonical_json_bytes(protected))
+        signature = signer.sign(payload)
     except Exception as error:
         raise PolicyIntegrityError("The policy signer failed.") from error
     if isawaitable(signature):
@@ -224,9 +227,10 @@ def loads_signed_policy(
         "algorithm": algorithm,
         "policy": policy_document,
     }
+    payload = _canonical_json_bytes(protected)
     try:
         verified = verifier.verify(
-            _canonical_json_bytes(protected),
+            payload,
             signature,
             key_id=key_id,
             algorithm=algorithm,

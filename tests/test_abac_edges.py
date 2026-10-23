@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from enum import Enum
 
 import pytest
 
@@ -56,6 +57,31 @@ def complete_document() -> dict[str, object]:
 def test_condition_result_matched_property_is_exact() -> None:
     assert ConditionResult(ConditionState.MATCH, "yes").matched
     assert not ConditionResult(ConditionState.NO_MATCH, "no").matched
+
+
+def test_a_condition_result_state_outside_condition_state_cannot_grant() -> None:
+    class ForeignState(Enum):
+        NO = "no"
+
+    class ForeignCondition:
+        def evaluate(
+            self,
+            request: AuthorizationRequest,
+            operators: OperatorRegistry,
+        ) -> ConditionResult:
+            return ConditionResult(ForeignState.NO, "custom")  # type: ignore[arg-type]
+
+        def to_dict(self) -> dict[str, object]:
+            return {"type": "custom"}
+
+    for condition in (ForeignCondition(), Not(ForeignCondition()), AllOf(ForeignCondition())):
+        decision = AuthorizationEngine([AttributePolicy(condition, name="custom")]).decide(
+            request()
+        )
+        assert not decision.allowed
+        assert decision.metadata["error_type"] == "TypeError"
+    with pytest.raises(TypeError, match="ConditionState"):
+        ConditionResult("match", "plain string")  # type: ignore[arg-type]
 
 
 def test_attribute_reference_rejects_empty_path_segments() -> None:
@@ -347,6 +373,55 @@ def test_all_serialized_policy_entry_points_enforce_complexity_limits() -> None:
         attribute_policy_from_dict(document)
 
 
+@pytest.mark.parametrize("group", ["all_of", "any_of", "not"])
+def test_documented_condition_depth_is_accepted_and_the_next_level_rejected(group: str) -> None:
+    literal: object = 1
+    for _ in range(64):
+        literal = [literal]
+
+    def nested(levels: int) -> dict[str, object]:
+        condition: dict[str, object] = {
+            "type": "comparison",
+            "operator": "eq",
+            "left": {"source": "context", "path": "value"},
+            "right": {"value": literal},
+        }
+        for _ in range(levels - 1):
+            condition = (
+                {"type": "not", "condition": condition}
+                if group == "not"
+                else {"type": group, "conditions": [condition]}
+            )
+        return condition
+
+    document = complete_document()
+    document["condition"] = nested(64)
+    attribute_policy_from_dict(document)
+    AttributePolicy(condition_from_dict(nested(64)))
+
+    document["condition"] = nested(65)
+    with pytest.raises(PolicySchemaError, match="nesting depth"):
+        attribute_policy_from_dict(document)
+
+
+def test_serialized_policies_enforce_size_and_node_limits() -> None:
+    document = complete_document()
+    with pytest.raises(PolicySchemaError, match="size limit"):
+        loads_policy(json.dumps(document) + " " * 1_000_000)
+
+    leaf = complete_document()["condition"]
+    document["condition"] = {"type": "any_of", "conditions": [leaf] * 4_096}
+    with pytest.raises(PolicySchemaError, match="maximum node count"):
+        attribute_policy_from_dict(document)
+
+    condition = complete_document()["condition"]
+    assert isinstance(condition, dict)
+    condition["right"] = {"value": [[0] * 10_000 for _ in range(11)]}
+    document["condition"] = condition
+    with pytest.raises(PolicySchemaError, match="literal value exceeds the maximum node count"):
+        attribute_policy_from_dict(document)
+
+
 def test_serialized_literals_require_bounded_finite_json_data() -> None:
     document = complete_document()
     condition = document["condition"]
@@ -368,8 +443,55 @@ def test_serialized_literals_require_bounded_finite_json_data() -> None:
         attribute_policy_from_dict(document)
 
 
+def test_literal_built_from_a_live_view_is_snapshotted() -> None:
+    allowed = {"uk": None}
+    condition = ContextAttribute("country").is_in(allowed.keys())
+
+    allowed["ru"] = None
+
+    assert state(condition, request(context={"country": "ru"})) is ConditionState.NO_MATCH
+
+
 def test_non_json_dsl_collection_literal_is_not_silently_changed() -> None:
     policy = AttributePolicy(ContextAttribute("scopes").equals({"read"}))
 
     with pytest.raises(PolicySchemaError, match="not JSON serializable"):
         dumps_policy(policy)
+
+
+@pytest.mark.parametrize("condition_type", [["comparison"], {"type": "comparison"}])
+def test_unhashable_condition_types_are_schema_errors(condition_type: object) -> None:
+    condition = {
+        "type": "not",
+        "condition": {
+            "type": condition_type,
+            "operator": "eq",
+            "left": {"source": "context", "path": "value"},
+            "right": {"value": 1},
+        },
+    }
+    document = complete_document()
+    document["condition"] = condition
+
+    with pytest.raises(PolicySchemaError, match="condition.type must be a non-empty string"):
+        condition_from_dict(condition)
+    with pytest.raises(PolicySchemaError, match="condition.type must be a non-empty string"):
+        loads_policy(json.dumps(document))
+
+
+def test_policy_documents_must_state_actions_and_omit_unused_operands() -> None:
+    document = complete_document()
+    del document["actions"]
+
+    with pytest.raises(PolicySchemaError, match="actions is required"):
+        attribute_policy_from_dict(document)
+    with pytest.raises(PolicySchemaError, match="condition.right"):
+        condition_from_dict(
+            {
+                "type": "comparison",
+                "operator": "exists",
+                "left": {"source": "context", "path": "device"},
+                "right": None,
+            }
+        )
+    assert attribute_policy_from_dict({**document, "actions": None}).actions is None

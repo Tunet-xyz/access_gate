@@ -20,6 +20,7 @@ accessgate-mcp
 Supported MCP methods:
 
 - `initialize`
+- `ping`
 - `resources/list`
 - `resources/read`
 - `tools/list`

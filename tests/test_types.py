@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from array import array
+from collections import UserList, deque
 
 import pytest
 
@@ -95,6 +97,41 @@ def test_snapshot_bounds_nested_values_and_handles_set_values() -> None:
         nested = [nested]
     with pytest.raises(ValueError, match="nesting depth"):
         Subject("user-1", attributes={"nested": nested})
+
+
+def test_other_mutable_containers_are_snapshotted() -> None:
+    groups = deque(["staff"])
+    teams = UserList(["safety"])
+    ids = array("i", [1])
+    raw = bytearray(b"a")
+    scopes = {"read": True}
+    trail = deque(["policy-a"])
+    request = AuthorizationRequest(
+        Subject("user-1", attributes={"groups": groups, "teams": teams}),
+        "read",
+        context={"ids": ids, "raw": raw, "scopes": scopes.keys(), "flags": scopes.values()},
+    )
+    decision = Decision.deny("Denied.", metadata={"trail": trail})
+
+    groups.append("admins")
+    teams.append("finance")
+    ids.append(2)
+    raw += b"b"
+    scopes["write"] = False
+    trail.append("tampered")
+
+    assert request.subject.attributes["groups"] == ("staff",)
+    assert request.subject.attributes["teams"] == ("safety",)
+    assert request.context["ids"] == (1,)
+    assert request.context["raw"] == b"a"
+    assert request.context["scopes"] == frozenset({"read"})
+    assert request.context["flags"] == (True,)
+    assert decision.metadata["trail"] == ("policy-a",)
+
+    cyclic = deque[object]()
+    cyclic.append(cyclic)
+    with pytest.raises(ValueError, match="cycles"):
+        Subject("user-1", attributes={"cycle": cyclic})
 
 
 def test_immutable_values_have_json_serializable_public_snapshots() -> None:

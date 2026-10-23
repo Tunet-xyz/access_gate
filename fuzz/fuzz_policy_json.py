@@ -14,7 +14,7 @@ def test_one_input(data: bytes) -> None:
         return
     try:
         loads_policy(document)
-    except (PolicySchemaError, TypeError, ValueError):
+    except PolicySchemaError:
         return
 
 

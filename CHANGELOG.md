@@ -7,6 +7,95 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- A comparison whose two attribute operands both resolve to `None` is now
+  indeterminate (`issue: null_operands`) instead of matching, so an absent claim
+  and an empty resource field never satisfy a relationship grant or slip past a
+  `neq` deny boundary. Compare against an explicit `None` literal when null is
+  intended.
+- `gt`/`gte`/`lt`/`lte` with a non-int/float operand (string, `None`, boolean,
+  `Decimal`, date), and any built-in comparison involving a float, `Decimal` or
+  complex NaN, are now indeterminate instead of no-match, so deny boundaries and
+  negated grants fail closed.
+- `loads_policy` and `AttributePolicy.from_dict` reject documents that omit
+  `actions` (use `null` to target every action) and comparisons with an explicit
+  `"right": null`, matching the packaged policy JSON Schema.
+- Policy fingerprints, signed envelopes and `dumps_policy` refuse literals that
+  JSON would retype (str subclasses such as enum members, as values or mapping
+  keys, and non-string mapping keys). Such a policy used to share its
+  fingerprint with a reloaded policy that decides differently.
+- `default_subject_resolver` authenticates only when `user.is_authenticated is
+  True`; a legacy `is_authenticated()` method or another truthy value no longer
+  authenticates. `access_gate_roles=None` means no roles, and `None` or empty
+  role entries are dropped.
+- The engine treats an allow returned by a decision strategy when no policy
+  allowed the request as a strategy failure (deny, or raise under
+  `strategy_error_mode=RAISE`).
+- `ConditionResult` rejects a state that is not a `ConditionState`, so a custom
+  condition returning a foreign state denies instead of falling through to a
+  grant.
+
+### Added
+
+- `DjangoAuthorizer(resolver_error_mode=ErrorMode.DENY)` turns resolver and
+  request-construction failures into an audited `access_gate.resolver` denial
+  passed to the denial handler. The default `RAISE` is unchanged, and `Http404`
+  and `PermissionDenied` still propagate.
+- `DjangoAuthorizer.check()` and `acheck()` return an audited decision for checks
+  inside a view; `AuthorizationEngine.record_denial()` audits a denial reached
+  without policy evaluation.
+
+### Changed
+
+- `eq`/`neq` apply type-aware equality inside lists, mappings and sets (`[True]`
+  no longer equals `[1]`), and `intersects`/`subset_of`/`superset_of` no longer
+  treat a `str` subclass such as a `StrEnum` member as a plain string.
+- Deques, `UserList`, `array`, dictionary views, other mutable sequences and
+  sets, and `bytearray` in request attributes, policy literals and decision
+  metadata are copied into tuples, frozensets and bytes, so later caller
+  mutation cannot change a decision or its audit record.
+- Subject, request and policy construction is faster: exact built-in scalars
+  skip the container checks, and policies without custom operators share a
+  pre-validated built-in operator table. Decisions are unchanged.
+- Release workflows stay manually dispatched but refuse refs other than `main`
+  or `v<version>`, run lint, type checks and tests first, normalize sdist file
+  modes, and publish the verified build; tag dispatches attach release evidence.
+- The authorization benchmark times an in-bounds matching collection comparison
+  and checks that every benchmarked decision allows; mutation testing copies
+  `tools/`, `fuzz/` and `mcp/` so runs complete.
+- The hybrid example sets `on_indeterminate=MissEffect.ABSTAIN` on alternative
+  grant policies so missing facts no longer veto an independent grant.
+- The README states that `Subject.identifier` must equal SessionArmor's evidence
+  subject, which SessionArmor takes from `sub` before `pk`.
+- Release and assurance docs reference PyPI PEP 740 attestations instead of the
+  removed GitHub artifact attestations, and the SECURITY.md support table lists
+  0.3.x.
+
+### Fixed
+
+- Async Django views work under ASGI: the default subject resolver and the
+  engine (policies and audit sinks) run through `sync_to_async`.
+  `DjangoAuthorizer(async_engine_in_thread=False)` keeps the engine on the event
+  loop for non-blocking policies.
+- Policies nested to the documented 64 condition levels, with literals up to 64
+  levels deep inside them, are accepted; `all_of`/`any_of` nesting used to be
+  rejected from 33 levels with a generic error.
+- A non-string `condition.type` raises `PolicySchemaError` instead of leaking
+  `TypeError`, and unencodable policy text (lone surrogates) raises
+  `PolicyIntegrityError` instead of a raw `UnicodeEncodeError` or a misleading
+  signer/verifier failure.
+- `Policy.name` is a read-only protocol property, so the built-in policies
+  satisfy `Policy` under mypy.
+- The MCP server writes ASCII-only JSON, reads stdin as UTF-8 under any locale,
+  answers unserializable responses with -32603 and invalid UTF-8 with -32700
+  instead of exiting, omits `outputSchema` when a tool defines none, answers
+  `ping`, rejects a `null` request id, and never echoes an invalid id.
+- Fuzz harnesses exercise the MCP write path and report any parser exception
+  other than `PolicySchemaError`.
+
+## [0.3.0a1] - 2026-08-17
+
 ### Added
 
 - Exported `SessionAssurancePolicy` as a supported public boundary policy for
@@ -31,9 +120,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   collection evaluation workloads.
 - Fail-closed decision-strategy error handling with an explicit
   `strategy_error_mode`.
-
-### Changed
-
 - Authorization inputs, literal values, and decision metadata are recursively
   snapshotted into immutable containers.
 - Operator registries attached to policies are frozen against later mutation.

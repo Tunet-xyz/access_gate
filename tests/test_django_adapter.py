@@ -34,9 +34,13 @@ def test_default_context_resolver_includes_sessionarmor_evidence() -> None:
         method="GET", path="/records", session_assurance=_Assurance()
     )
     context = default_context_resolver(request)
-    assert context["session_assurance"] == {
-        "schema": "session-armor.assurance/v1",
-        "status": "trusted",
+    assert context == {
+        "method": "GET",
+        "path": "/records",
+        "session_assurance": {
+            "schema": "session-armor.assurance/v1",
+            "status": "trusted",
+        },
     }
 
 
@@ -47,6 +51,19 @@ def test_default_context_resolver_contains_broken_assurance_serializer() -> None
 
     request = SimpleNamespace(method="GET", path="/records", session_assurance=Broken())
     assert default_context_resolver(request)["session_assurance"] == {"schema": "invalid"}
+
+
+def test_default_context_resolver_rejects_a_non_mapping_assurance_record() -> None:
+    class NotAMapping:
+        def to_authorization_context(self) -> list[str]:
+            return ["trusted"]
+
+    request = SimpleNamespace(method="POST", path="/billing", session_assurance=NotAMapping())
+    assert default_context_resolver(request) == {
+        "method": "POST",
+        "path": "/billing",
+        "session_assurance": {"schema": "invalid"},
+    }
 
 
 def django_request(*, roles: tuple[str, ...]) -> Any:
@@ -200,3 +217,37 @@ def test_default_subject_resolver_handles_id_fallback_and_invalid_attributes() -
 
     assert subject.identifier == "9"
     assert subject.attributes == {}
+
+
+def test_default_subject_resolver_requires_a_real_true_is_authenticated() -> None:
+    class LegacyGuest:
+        pk = 17
+
+        def is_authenticated(self) -> bool:
+            return False
+
+    for user in (LegacyGuest(), SimpleNamespace(pk=17, is_authenticated=1)):
+        subject = default_subject_resolver(SimpleNamespace(user=user))
+        assert subject.authenticated is False
+
+    assert default_subject_resolver(django_request(roles=())).authenticated is True
+
+
+def test_default_subject_resolver_ignores_missing_and_empty_roles() -> None:
+    request = django_request(roles=())
+    request.user.access_gate_roles = None
+    assert default_subject_resolver(request).roles == frozenset()
+
+    request.user.access_gate_roles = ["manager", None, ""]
+    assert default_subject_resolver(request).roles == frozenset({"manager"})
+
+
+def test_default_subject_resolver_does_not_authenticate_an_anonymous_user() -> None:
+    request = django_request(roles=())
+    request.user.pk = None
+    request.user.is_authenticated = False
+
+    subject = default_subject_resolver(request)
+
+    assert not subject.authenticated
+    assert subject.identifier == ""

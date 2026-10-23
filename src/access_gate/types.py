@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import (
+    ItemsView,
+    Iterator,
+    KeysView,
+    Mapping,
+    MutableSequence,
+    MutableSet,
+    ValuesView,
+)
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import cast
@@ -10,6 +18,9 @@ from typing import cast
 _MAX_VALUE_DEPTH = 64
 _MAX_VALUE_ITEMS = 100_000
 _MAX_SUBJECT_ROLES = 10_000
+# Exact built-in immutable scalars. Subclasses (bool, str enums, custom ints) are
+# not listed and keep the general isinstance path below.
+_IMMUTABLE_SCALAR_TYPES = frozenset({str, int, float, bytes, type(None)})
 
 
 class _FrozenMapping(Mapping[object, object]):
@@ -40,20 +51,26 @@ def _freeze_value(
     depth: int = 0,
     seen: set[int] | None = None,
     item_count: list[int] | None = None,
+    max_depth: int = _MAX_VALUE_DEPTH,
 ) -> object:
     """Create a bounded immutable snapshot of authorization input data."""
 
-    if depth > _MAX_VALUE_DEPTH:
+    if depth > max_depth:
         raise ValueError(f"{field_name} exceeds the maximum nesting depth.")
+    value_type = type(value)
+    # Exact scalars match none of the container branches below; returning them
+    # first skips the comparatively slow ABC isinstance checks on every leaf.
+    if value_type in _IMMUTABLE_SCALAR_TYPES:
+        return value
     if seen is None:
         seen = set()
     if item_count is None:
         item_count = [0]
 
-    if isinstance(value, _FrozenMapping):
+    if value_type is not dict and isinstance(value, _FrozenMapping):
         return value
 
-    if isinstance(value, Mapping):
+    if isinstance(value, dict) or isinstance(value, Mapping):
         identity = id(value)
         if identity in seen:
             raise ValueError(f"{field_name} must not contain reference cycles.")
@@ -70,6 +87,7 @@ def _freeze_value(
                     depth=depth + 1,
                     seen=seen,
                     item_count=item_count,
+                    max_depth=max_depth,
                 )
             return _FrozenMapping(frozen)
         finally:
@@ -93,6 +111,7 @@ def _freeze_value(
                         depth=depth + 1,
                         seen=seen,
                         item_count=item_count,
+                        max_depth=max_depth,
                     )
                 )
             return tuple(frozen_items)
@@ -117,9 +136,36 @@ def _freeze_value(
                         depth=depth + 1,
                         seen=seen,
                         item_count=item_count,
+                        max_depth=max_depth,
                     )
                 )
             return frozenset(frozen_items)
+        finally:
+            seen.remove(identity)
+
+    if isinstance(value, bytearray):
+        return bytes(value)
+
+    if isinstance(value, MutableSequence | MutableSet | KeysView | ItemsView | ValuesView):
+        # Other mutable or live containers (deque, UserList, array, dictionary
+        # views) are copied first, so later caller mutation cannot reach the
+        # snapshot through them.
+        identity = id(value)
+        if identity in seen:
+            raise ValueError(f"{field_name} must not contain reference cycles.")
+        if len(value) > _MAX_VALUE_ITEMS - item_count[0]:
+            raise ValueError(f"{field_name} contains too many values.")
+        seen.add(identity)
+        try:
+            copied = set(value) if isinstance(value, KeysView | MutableSet) else list(value)
+            return _freeze_value(
+                copied,
+                field_name=field_name,
+                depth=depth,
+                seen=seen,
+                item_count=item_count,
+                max_depth=max_depth,
+            )
         finally:
             seen.remove(identity)
 

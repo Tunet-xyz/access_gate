@@ -11,7 +11,7 @@ from typing import cast
 from .exceptions import AuthorizationDenied
 from .protocols import AuditSink, DecisionStrategy, Policy
 from .strategies import DenyOverrides
-from .types import AuthorizationRequest, Decision, Resource, Subject
+from .types import AuthorizationRequest, Decision, Effect, Resource, Subject
 
 
 class ErrorMode(str, Enum):
@@ -119,6 +119,11 @@ class AuthorizationEngine:
             if not isinstance(final, Decision):
                 self._close_awaitable(final)
                 raise TypeError("The decision strategy returned an invalid value.")
+            if final.effect is Effect.ALLOW and not any(
+                decision.effect is Effect.ALLOW for decision in decisions
+            ):
+                # No applicable allow is a deny, whichever strategy combines them.
+                raise ValueError("The decision strategy allowed without an applicable allow.")
         except Exception as error:
             if self._strategy_error_mode is ErrorMode.RAISE:
                 raise
@@ -154,6 +159,22 @@ class AuthorizationEngine:
                 action_attributes=action_attributes or {},
             )
         )
+
+    def record_denial(self, request: AuthorizationRequest, decision: Decision) -> Decision:
+        """Audit a denial reached without policy evaluation and return it.
+
+        Framework adapters use this when authorization inputs cannot be
+        resolved. The decision is annotated and audited like any final decision,
+        so ``policy_set_id`` and ``audit_error_mode`` apply.
+        """
+
+        if not isinstance(request, AuthorizationRequest):
+            raise TypeError("record_denial requires an AuthorizationRequest.")
+        if not isinstance(decision, Decision):
+            raise TypeError("record_denial requires a Decision.")
+        if decision.effect is not Effect.DENY:
+            raise ValueError("record_denial only records deny decisions.")
+        return self._record(request, self._annotate(decision))
 
     def enforce(self, request: AuthorizationRequest) -> Decision:
         """Return an allowed decision or raise :class:`AuthorizationDenied`."""

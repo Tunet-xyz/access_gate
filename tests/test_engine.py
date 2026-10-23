@@ -182,6 +182,37 @@ def test_invalid_strategy_result_fails_closed() -> None:
     assert decision.metadata == {"error_type": "TypeError"}
 
 
+class PermitUnlessDenyStrategy:
+    def combine(
+        self,
+        value: AuthorizationRequest,
+        decisions: Sequence[Decision],
+    ) -> Decision:
+        for decision in decisions:
+            if decision.effect is Effect.DENY:
+                return decision
+        return Decision.allow("Nothing denied.", policy="permit_unless_deny")
+
+
+def test_strategy_cannot_allow_without_an_applicable_allow() -> None:
+    abstain = FunctionPolicy("abstain", lambda value: None)
+    allow = FunctionPolicy("allow", lambda value: Decision.allow("Allowed.", policy="allow"))
+    strategy = PermitUnlessDenyStrategy()
+
+    for policies in ([], [abstain]):
+        decision = AuthorizationEngine(policies, strategy=strategy).decide(request())
+        assert not decision.allowed
+        assert decision.policy == "access_gate.strategy"
+        assert decision.metadata == {"error_type": "ValueError"}
+    with pytest.raises(ValueError, match="applicable allow"):
+        AuthorizationEngine(
+            [abstain],
+            strategy=strategy,
+            strategy_error_mode=ErrorMode.RAISE,
+        ).decide(request())
+    assert AuthorizationEngine([abstain, allow], strategy=strategy).decide(request()).allowed
+
+
 def test_ignore_modes_are_explicit_and_audit_raise_is_supported() -> None:
     broken = FunctionPolicy("broken", lambda value: 1 / 0)
     allow = FunctionPolicy("allow", lambda value: Decision.allow("Allowed."))

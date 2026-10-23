@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import re
+from cmath import isnan as _complex_isnan
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
+from decimal import Decimal
 from enum import Enum
 from importlib.resources import files
 from inspect import isawaitable
@@ -24,6 +26,11 @@ MAX_POLICY_CONDITION_NODES = 4_096
 MAX_POLICY_LITERAL_NODES = 100_000
 MAX_COLLECTION_ITEMS = 10_000
 MAX_FALLBACK_COMPARISONS = 100_000
+# A serialized condition nests two containers per all_of/any_of level, then an
+# operand object and a literal of up to MAX_POLICY_CONDITION_DEPTH levels.
+_MAX_CONDITION_DOCUMENT_DEPTH = (
+    2 * (MAX_POLICY_CONDITION_DEPTH - 1) + 2 + MAX_POLICY_CONDITION_DEPTH
+)
 
 
 class PolicySchemaError(ValueError):
@@ -65,6 +72,12 @@ class ConditionResult:
     reason: str
     metadata: Mapping[str, object] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        # Policies and combinators branch on identity with these states, so any
+        # other value would fall through to their match path.
+        if not isinstance(self.state, ConditionState):
+            raise TypeError("ConditionResult.state must be a ConditionState value.")
+
     @property
     def matched(self) -> bool:
         return self.state is ConditionState.MATCH
@@ -84,11 +97,37 @@ def _is_number(value: object) -> bool:
     return isinstance(value, int | float) and not isinstance(value, bool)
 
 
+def _reject_nan(value: object) -> None:
+    if isinstance(value, float):
+        if isnan(value):
+            raise ValueError("NaN is not a comparable authorization value.")
+    elif isinstance(value, Decimal | complex) and (
+        value.is_nan() if isinstance(value, Decimal) else _complex_isnan(value)
+    ):
+        # A Decimal NaN (DecimalField, Decimal("nan") from input) or a complex
+        # NaN compares unequal to everything, just like a float NaN.
+        raise ValueError("NaN is not a comparable authorization value.")
+
+
 def _equal(left: object, right: object) -> bool:
+    _reject_nan(left)
+    _reject_nan(right)
     if _is_number(left) and _is_number(right):
         return bool(left == right)
     if type(left) is not type(right):
         return False
+    # Containers are compared member by member so nested values keep the same
+    # type-aware semantics as top-level ones (``[True]`` never equals ``[1]``).
+    if isinstance(left, tuple | list):
+        items = cast(Sequence[object], right)
+        return len(left) == len(items) and all(map(_equal, left, items))
+    if isinstance(left, Mapping):
+        mapping = cast(Mapping[object, object], right)
+        return _same_members(left, mapping) and all(
+            _equal(value, mapping[key]) for key, value in left.items()
+        )
+    if isinstance(left, frozenset | set):
+        return _same_members(left, cast(Collection[object], right))
     return bool(left == right)
 
 
@@ -125,10 +164,10 @@ def _exact_key(value: object) -> object:
         if isinstance(value, float) and isnan(value):
             return _UNHASHABLE
         return ("number", value)
-    if isinstance(value, str):
-        return ("str", value)
-    if isinstance(value, bytes):
-        return ("bytes", value)
+    if isinstance(value, str | bytes):
+        # Keyed by exact type, so a str subclass such as a StrEnum member matches
+        # a plain string here exactly when ``_equal`` would.
+        return (type(value), value)
     if value is None:
         return ("none", None)
     return _UNHASHABLE
@@ -142,6 +181,21 @@ def _exact_key_set(values: Collection[object] | Mapping[object, object]) -> set[
             return None
         keys.add(key)
     return keys
+
+
+def _same_members(
+    left: Collection[object] | Mapping[object, object],
+    right: Collection[object] | Mapping[object, object],
+) -> bool:
+    if len(left) != len(right):
+        return False
+    left_keys = _exact_key_set(left)
+    right_keys = _exact_key_set(right)
+    if left_keys is not None and right_keys is not None:
+        return left_keys == right_keys
+    if len(left) * len(right) > MAX_FALLBACK_COMPARISONS:
+        raise ValueError("Collection comparison exceeds the safe comparison limit.")
+    return all(any(_equal(item, other) for other in right) for item in left)
 
 
 def _contains(container: object, member: object) -> bool:
@@ -175,7 +229,9 @@ def _subset_of(left: object, right: object) -> bool:
 
 def _ordered(left: object, right: object, operation: str) -> bool:
     if not (_is_number(left) and _is_number(right)):
-        return False
+        raise TypeError("Ordered comparisons require int or float operands.")
+    _reject_nan(left)
+    _reject_nan(right)
     left_number = cast(float, left)
     right_number = cast(float, right)
     if operation == "gt":
@@ -273,6 +329,22 @@ class OperatorRegistry:
 
     def copy(self, *, frozen: bool = False) -> OperatorRegistry:
         return OperatorRegistry(self._operators, include_builtins=False, frozen=frozen)
+
+
+_BUILTIN_OPERATORS: Mapping[str, OperatorFunction] = MappingProxyType(_builtins())
+
+
+def _frozen_builtin_registry() -> OperatorRegistry:
+    """Return ``OperatorRegistry().copy(frozen=True)`` without re-validating.
+
+    The built-in names are constants that already satisfy ``register()``; each
+    policy still receives its own frozen registry.
+    """
+
+    registry = OperatorRegistry(include_builtins=False)
+    registry._operators.update(_BUILTIN_OPERATORS)
+    registry._frozen = True
+    return registry
 
 
 @runtime_checkable
@@ -433,7 +505,19 @@ class Condition(Protocol):
     def to_dict(self) -> dict[str, object]: ...
 
 
+# Exact built-in scalars never satisfy the Operand protocol. Subclasses, bool
+# included, are not listed and keep the runtime protocol check.
+_SCALAR_LITERAL_TYPES = frozenset({str, int, float, bytes, type(None)})
+
+
 def _operand(value: Operand | object) -> Operand:
+    # Skip the runtime protocol check, which inspects every protocol member, for
+    # the two built-in operand classes and for exact scalar literals.
+    value_type = type(value)
+    if value_type is AttributeRef or value_type is Literal:
+        return cast(Operand, value)
+    if value_type in _SCALAR_LITERAL_TYPES:
+        return Literal(value)
     if isinstance(value, Operand):
         return value
     return Literal(value)
@@ -500,6 +584,20 @@ class Comparison:
                 ConditionState.INDETERMINATE,
                 "A required right attribute is missing.",
                 issue="missing_right_operand",
+                **metadata,
+            )
+        if (
+            left_value is None
+            and right_value is None
+            and not isinstance(self.left, Literal)
+            and not isinstance(self.right, Literal)
+        ):
+            # Two absent facts never establish a relationship; compare with an
+            # explicit null literal when null is the intended value.
+            return _result(
+                ConditionState.INDETERMINATE,
+                "Both compared attributes are null.",
+                issue="null_operands",
                 **metadata,
             )
         if not operators.contains(self.operator):
@@ -704,6 +802,7 @@ class AttributePolicy:
         frozen_document = _freeze_value(
             condition_document,
             field_name="condition document",
+            max_depth=_MAX_CONDITION_DOCUMENT_DEPTH,
         )
         if not isinstance(frozen_document, Mapping):
             raise TypeError("condition.to_dict() must return a mapping.")
@@ -713,7 +812,11 @@ class AttributePolicy:
         object.__setattr__(self, "on_no_match", on_no_match)
         object.__setattr__(self, "on_indeterminate", on_indeterminate)
         object.__setattr__(self, "name", name)
-        object.__setattr__(self, "operators", (operators or OperatorRegistry()).copy(frozen=True))
+        object.__setattr__(
+            self,
+            "operators",
+            operators.copy(frozen=True) if operators else _frozen_builtin_registry(),
+        )
         object.__setattr__(
             self,
             "include_policy_document_in_metadata",
@@ -827,6 +930,8 @@ def _validate_condition_complexity(condition: Mapping[str, object]) -> None:
         if not isinstance(current, Mapping):
             continue
         condition_type = current.get("type")
+        if not isinstance(condition_type, str):
+            continue
         if condition_type == "not":
             stack.append((current.get("condition"), depth + 1))
         elif condition_type in {"all_of", "any_of"}:
@@ -875,6 +980,40 @@ def _validate_serialized_literal(value: object) -> None:
         raise PolicySchemaError("literal values must contain only JSON-compatible data.")
 
 
+def _validate_lossless_literals(document: object) -> None:
+    """Reject literals that a JSON round trip would load as different values.
+
+    Built-in operators compare exact types, so a ``str`` subclass such as an enum
+    member decides differently once it is reloaded as ``str``, and JSON turns
+    non-string object keys into strings.
+    """
+
+    stack: list[object] = [document]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, list):
+            stack.extend(current)
+            continue
+        if not isinstance(current, dict):
+            continue
+        if set(current) != {"value"}:
+            stack.extend(current.values())
+            continue
+        values: list[object] = [current["value"]]
+        while values:
+            item = values.pop()
+            if isinstance(item, dict):
+                # Keys are compared by exact type too, so a str subclass key would
+                # reload as a plain str key that decides differently.
+                if not all(type(key) is str for key in item):
+                    raise PolicySchemaError("literal object keys must be plain str values.")
+                values.extend(item.values())
+            elif isinstance(item, list):
+                values.extend(item)
+            elif isinstance(item, str) and type(item) is not str:
+                raise PolicySchemaError("literal strings must be plain str values.")
+
+
 def operand_from_dict(document: Mapping[str, object]) -> Operand:
     has_source = "source" in document
     has_value = "value" in document
@@ -915,11 +1054,10 @@ def _condition_from_dict(document: Mapping[str, object]) -> Condition:
         )
         left = operand_from_dict(_mapping(document.get("left"), "condition.left"))
         operator = _string(document.get("operator"), "condition.operator")
-        right_value = document.get("right")
         right = (
             None
-            if right_value is None
-            else operand_from_dict(_mapping(right_value, "condition.right"))
+            if "right" not in document
+            else operand_from_dict(_mapping(document["right"], "condition.right"))
         )
         try:
             return Comparison(left, operator, right)
@@ -994,7 +1132,9 @@ def attribute_policy_from_dict(
     if unknown:
         raise PolicySchemaError(f"Unknown operators: {', '.join(unknown)}")
 
-    raw_actions = document.get("actions")
+    if "actions" not in document:
+        raise PolicySchemaError("actions is required; use null to target every action.")
+    raw_actions = document["actions"]
     actions: Collection[str] | None
     if raw_actions is None:
         actions = None
@@ -1036,7 +1176,9 @@ def attribute_policy_from_dict(
 
 def dumps_policy(policy: AttributePolicy, *, indent: int | None = 2) -> str:
     try:
-        return json.dumps(policy.to_dict(), ensure_ascii=False, indent=indent, sort_keys=True)
+        document = policy.to_dict()
+        _validate_lossless_literals(document)
+        return json.dumps(document, ensure_ascii=False, indent=indent, sort_keys=True)
     except (TypeError, ValueError) as error:
         raise PolicySchemaError(
             "The policy contains a value that is not JSON serializable."

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import runpy
 from dataclasses import dataclass
+from decimal import Decimal
+from enum import Enum
+from pathlib import Path
 
 import pytest
 
@@ -98,15 +102,17 @@ def test_all_abac_namespaces_can_participate_in_one_policy() -> None:
         ("subset_of", ["a"], ["a", "b"], ConditionState.MATCH),
         ("superset_of", ["a", "b"], ["a"], ConditionState.MATCH),
         ("gt", 4, 3, ConditionState.MATCH),
+        ("gt", 3, 3, ConditionState.NO_MATCH),
         ("gte", 4, 4.0, ConditionState.MATCH),
         ("lt", 2, 3, ConditionState.MATCH),
+        ("lt", 3, 3, ConditionState.NO_MATCH),
         ("lte", 3, 3, ConditionState.MATCH),
         ("eq", True, 1, ConditionState.NO_MATCH),
         ("contains", "administrator", "admin", ConditionState.INDETERMINATE),
         ("in", "admin", "administrator", ConditionState.INDETERMINATE),
         ("not_contains", "administrator", "admin", ConditionState.INDETERMINATE),
         ("not_in", "admin", "administrator", ConditionState.INDETERMINATE),
-        ("gt", "4", "3", ConditionState.NO_MATCH),
+        ("gt", "4", "3", ConditionState.INDETERMINATE),
     ],
 )
 def test_builtin_operators_have_safe_exact_semantics(
@@ -123,6 +129,66 @@ def test_builtin_operators_have_safe_exact_semantics(
     )
 
     assert result.state is expected
+
+
+@pytest.mark.parametrize("value", [Decimal("50000"), "50000", None, True, float("nan")])
+def test_unorderable_or_nan_operands_cannot_slip_past_a_boundary(value: object) -> None:
+    limit = AttributePolicy(
+        ContextAttribute("amount").greater_than(10_000),
+        match_effect=Effect.DENY,
+        name="amount_limit",
+    )
+    below_limit = AttributePolicy(Not(ContextAttribute("amount").greater_than(10_000)))
+    request = abac_request(context={"amount": value})
+
+    assert evaluate(ContextAttribute("amount").greater_than(10_000), request) is (
+        ConditionState.INDETERMINATE
+    )
+    assert not AuthorizationEngine([limit, RolePolicy({"reviewer"})]).decide(request).allowed
+    assert not AuthorizationEngine([below_limit]).decide(request).allowed
+
+
+@pytest.mark.parametrize("nan", [float("nan"), Decimal("NaN"), complex("nan")])
+def test_nan_is_never_equal_or_unequal(nan: object) -> None:
+    request = abac_request(context={"left": nan, "right": 1})
+
+    for condition in (
+        ContextAttribute("left").equals(ContextAttribute("right")),
+        ContextAttribute("left").not_equals(ContextAttribute("right")),
+        ContextAttribute("left").is_not_in([1, 2]),
+    ):
+        assert evaluate(condition, request) is ConditionState.INDETERMINATE
+
+
+class _Role(str, Enum):
+    ADMIN = "admin"
+
+
+@pytest.mark.parametrize(
+    ("operator", "left", "right", "expected"),
+    [
+        ("eq", [True], [1], ConditionState.NO_MATCH),
+        ("eq", {"admin": True}, {"admin": 1}, ConditionState.NO_MATCH),
+        ("eq", {"flags": {True: "on"}}, {"flags": {1: "on"}}, ConditionState.NO_MATCH),
+        ("eq", {"n": [1, {"mfa": True}]}, {"n": [1.0, {"mfa": True}]}, ConditionState.MATCH),
+        ("in", [True], [[1], [2]], ConditionState.NO_MATCH),
+        ("subset_of", [[True]], [[1]], ConditionState.NO_MATCH),
+        ("eq", _Role.ADMIN, "admin", ConditionState.NO_MATCH),
+        ("in", _Role.ADMIN, ["admin"], ConditionState.NO_MATCH),
+        ("intersects", [_Role.ADMIN], ["admin"], ConditionState.NO_MATCH),
+        ("intersects", [_Role.ADMIN, ["x"]], ["admin"], ConditionState.NO_MATCH),
+        ("intersects", [_Role.ADMIN], [_Role.ADMIN], ConditionState.MATCH),
+    ],
+)
+def test_exact_equality_applies_inside_containers_and_to_every_operator(
+    operator: str,
+    left: object,
+    right: object,
+    expected: ConditionState,
+) -> None:
+    condition = ContextAttribute("left").compare(operator, ContextAttribute("right"))
+
+    assert evaluate(condition, abac_request(context={"left": left, "right": right})) is expected
 
 
 def test_missing_operand_is_indeterminate_and_denied() -> None:
@@ -158,6 +224,27 @@ def test_none_is_an_explicit_literal_not_an_omitted_operand() -> None:
 
     assert evaluate(condition, abac_request(context={"optional": None})) is ConditionState.MATCH
     assert evaluate(condition, abac_request()) is ConditionState.INDETERMINATE
+
+
+def test_two_null_attributes_never_establish_a_relationship() -> None:
+    same_tenant = SubjectAttribute("tenant").equals(ResourceAttribute("tenant"))
+    other_tenant = SubjectAttribute("tenant").not_equals(ResourceAttribute("tenant"))
+    unscoped = abac_request(
+        subject_attributes={"tenant": None},
+        resource_attributes={"tenant": None},
+    )
+
+    result = same_tenant.evaluate(unscoped, OperatorRegistry())
+    assert result.state is ConditionState.INDETERMINATE
+    assert result.metadata["issue"] == "null_operands"
+    assert evaluate(other_tenant, unscoped) is ConditionState.INDETERMINATE
+    assert not AuthorizationEngine([AttributePolicy(same_tenant)]).decide(unscoped).allowed
+    boundary = AttributePolicy(other_tenant, match_effect=Effect.DENY, name="tenant_boundary")
+    assert not AuthorizationEngine([boundary, RolePolicy({"reviewer"})]).decide(unscoped).allowed
+
+    scoped = abac_request(subject_attributes={"tenant": "a"}, resource_attributes={"tenant": None})
+    assert evaluate(same_tenant, scoped) is ConditionState.NO_MATCH
+    assert evaluate(other_tenant, scoped) is ConditionState.MATCH
 
 
 def test_all_of_no_match_wins_over_an_indeterminate_child() -> None:
@@ -222,6 +309,23 @@ def test_grant_policy_can_abstain_for_mixed_rbac_abac_grants() -> None:
     assert decision.policy == "safety_department"
 
 
+def test_hybrid_example_does_not_let_missing_facts_veto_the_role_grant() -> None:
+    example = Path(__file__).resolve().parents[1] / "examples" / "hybrid_authorization.py"
+    engine = runpy.run_path(str(example))["engine"]
+    manager = Subject(
+        "manager-1",
+        roles=frozenset({"incident_manager"}),
+        attributes={"tenant_id": "acme"},
+    )
+    member = Subject("member-1", attributes={"tenant_id": "acme", "team": "response"})
+    assigned = Resource("incident", "INC-1", {"tenant_id": "acme", "assigned_team": "response"})
+
+    assert engine.authorize(manager, "incident.read", assigned).allowed
+    assert not engine.authorize(member, "incident.read", assigned).allowed
+    other_tenant = Resource("incident", "INC-2", {"tenant_id": "other"})
+    assert not engine.authorize(manager, "incident.read", other_tenant).allowed
+
+
 def test_action_targeting_is_exact() -> None:
     policy = AttributePolicy(
         SubjectAttribute("department").equals("safety"),
@@ -240,6 +344,7 @@ def test_action_targeting_is_exact() -> None:
 
     assert not decision.allowed
     assert decision.policy == "access_gate.default_deny"
+    assert policy.evaluate(other_request) is None
 
 
 def test_engine_convenience_api_accepts_action_attributes() -> None:

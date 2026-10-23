@@ -24,7 +24,9 @@ engine = AuthorizationEngine(
             actions={"incident.read"},
             on_miss=MissEffect.ABSTAIN,
         ),
-        # An alternative grant path based on attributes.
+        # An alternative grant path based on attributes. Missing facts (no
+        # device context, an unassigned incident) only mean this path does not
+        # apply; abstaining cannot grant, so the other grants still decide.
         AttributePolicy(
             AllOf(
                 SubjectAttribute("team").equals(ResourceAttribute("assigned_team")),
@@ -32,6 +34,7 @@ engine = AuthorizationEngine(
             ),
             actions={"incident.read"},
             on_no_match=MissEffect.ABSTAIN,
+            on_indeterminate=MissEffect.ABSTAIN,
             name="assigned_team_on_trusted_device",
         ),
     ]
@@ -52,3 +55,15 @@ decision = engine.authorize(
 )
 
 assert decision.allowed
+
+manager_without_device_context = engine.authorize(
+    Subject(
+        "user-7",
+        roles=frozenset({"incident_manager"}),
+        attributes={"tenant_id": "acme"},
+    ),
+    "incident.read",
+    Resource("incident", "INC-124", {"tenant_id": "acme"}),
+)
+
+assert manager_without_device_context.allowed

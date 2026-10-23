@@ -18,7 +18,10 @@ class Policy(Protocol):
     means that the policy explicitly allows or denies the request.
     """
 
-    name: str
+    # A read-only member, so frozen dataclasses and properties conform as well
+    # as plain attributes.
+    @property
+    def name(self) -> str: ...
 
     def evaluate(self, request: AuthorizationRequest) -> Decision | None: ...
 

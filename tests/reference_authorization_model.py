@@ -16,12 +16,19 @@ def deny_overrides(effects: Sequence[str]) -> str:
 
 
 def exact_equal(left: object, right: object) -> bool:
-    """Reference equality: booleans are not numbers; numeric types interoperate."""
+    """Reference equality: booleans are not numbers; numeric types interoperate.
+
+    JSON arrays and objects compare member by member under the same rules.
+    """
 
     if isinstance(left, bool) or isinstance(right, bool):
         return type(left) is type(right) and left == right
     if isinstance(left, int | float) and isinstance(right, int | float):
         return left == right
+    if isinstance(left, list) and isinstance(right, list):
+        return len(left) == len(right) and all(map(exact_equal, left, right))
+    if isinstance(left, dict) and isinstance(right, dict):
+        return left.keys() == right.keys() and all(exact_equal(left[k], right[k]) for k in left)
     return type(left) is type(right) and left == right
 
 

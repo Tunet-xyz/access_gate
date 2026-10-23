@@ -53,6 +53,8 @@ before calling the engine.
 
 Implement `DecisionStrategy.combine(request, decisions)` to change composition.
 The strategy must always return a final `Decision`; there is no final abstain.
+The engine treats an allow returned when no policy allowed the request as a
+strategy failure, so permit-unless-deny style strategies are not supported.
 The built-in `DenyOverrides` is recommended for most application authorization.
 
 ## Audit sinks
@@ -66,11 +68,19 @@ layer converts the exception to a denial and records the operational failure.
 Adapters should be thin: obtain already-authenticated identity, resolve domain
 objects, call the engine once, and translate denial into the framework's normal
 403 mechanism. Business policy belongs in policies, not decorators or middleware.
+An adapter that cannot build an authorization request can still audit its
+denial with `AuthorizationEngine.record_denial()`.
 
 The Django adapter preserves both synchronous and asynchronous view behavior.
 Resolvers and denial handlers used by an async view may return awaitables. A
 synchronous view rejects an awaitable resolver result instead of leaking a
-coroutine or silently bypassing enforcement.
+coroutine or silently bypassing enforcement. In an async view, the default
+subject resolver and the engine (policies and audit sinks) run through
+`asgiref.sync.sync_to_async`, so they may use the ORM. When every policy and
+audit sink is non-blocking pure Python, `async_engine_in_thread=False` runs the
+engine on the event loop and saves that thread hop. Synchronous resolvers or
+denial handlers you supply run on the event loop; make them async if they
+perform I/O.
 
 ## Serialized policies
 

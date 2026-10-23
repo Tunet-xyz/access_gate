@@ -196,7 +196,9 @@ directly through its `actions` argument. Use `decide_many()` for ordered batch
 evaluation; every request still receives its own decision and audit event.
 
 For mixed RBAC/ABAC grants, configure alternative grant policies to abstain on
-a miss. Explicit boundary denials still override every grant.
+a miss (`on_no_match`) and, unless missing facts should veto every other grant,
+on an indeterminate result (`on_indeterminate`). Explicit boundary denials still
+override every grant.
 
 ## Django adapter
 
@@ -216,9 +218,24 @@ def user_list(request):
 The default Django subject resolver only reads `pk`, `is_authenticated`,
 `access_gate_roles`, and `access_gate_attributes`. Real applications should
 normally provide a resolver that validates and maps their exact identity claims.
+With SessionArmor, the subject identifier must equal the evidence's subject
+identifier, which SessionArmor takes from `user.sub` before `pk`; for a user
+model with `sub`, resolve the subject from `sub` (or align SessionArmor's
+`get_subject_identifier()`), otherwise every request is denied with
+`subject_mismatch`.
 The adapter also accepts custom context and action-attribute resolvers for ABAC.
 Synchronous and asynchronous Django views are supported. Async views may use
 awaitable subject, resource, context, action-attribute, and denial resolvers.
+`default_context_resolver()` provides `method`, `path`, and, when the request
+carries SessionArmor evidence, `session_assurance`.
+
+`authorizer.check(request, action, resource=...)`, or `acheck()` in an async
+view, returns the audited decision for an object- or action-level check made
+inside a view with the same resolvers. Resolver exceptions propagate by
+default. With `resolver_error_mode=ErrorMode.DENY`, a failure to resolve the
+inputs or build the request becomes an audited denial from the
+`access_gate.resolver` policy and is passed to the denial handler; `Http404`
+and `PermissionDenied` still propagate.
 
 ## MCP server
 

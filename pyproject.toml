@@ -100,3 +100,5 @@ fail_under = 90
 source_paths = ["src/access_gate/"]
 pytest_add_cli_args_test_selection = ["tests/"]
 mutate_only_covered_lines = true
+# The suite imports tools/ and fuzz/ and reads mcp/agent-contract.json.
+also_copy = ["tools/", "fuzz/", "mcp/"]

@@ -37,18 +37,20 @@ matches, otherwise indeterminate if any child is indeterminate.
 
 | Operator | Meaning |
 | --- | --- |
-| `eq`, `neq` | Type-aware equality or inequality; numeric int/float values interoperate, booleans remain distinct. |
+| `eq`, `neq` | Type-aware equality or inequality, also inside lists, mappings and sets; numeric int/float values interoperate, booleans remain distinct, and a `str` subclass such as a string enum member never equals a plain string. |
 | `in`, `not_in` | Exact membership of the left scalar in the right collection. |
 | `contains`, `not_contains` | Exact membership of the right scalar in the left collection. |
 | `intersects` | At least one exact value appears in both collections. |
 | `subset_of`, `superset_of` | Exact collection inclusion. |
-| `gt`, `gte`, `lt`, `lte` | Numeric comparison excluding booleans and strings. |
+| `gt`, `gte`, `lt`, `lte` | Numeric comparison of int and float values; any other operand type is indeterminate. |
 | `exists`, `not_exists` | Explicit presence or absence checks. |
 
 Strings are not treated as collections. Passing a string or scalar where a
 collection is required produces an indeterminate result rather than a substring
-match or a negated grant. Register an explicitly named custom operator if a
-domain requires different semantics.
+match or a negated grant. Likewise a boolean, string, `None`, `Decimal` or
+date operand to an ordered comparison is indeterminate, and so is any built-in
+comparison involving a NaN (`float`, `Decimal` or `complex`). Register an
+explicitly named custom operator if a domain requires different semantics.
 
 Collection operands are limited to 10,000 items. Primitive intersections and
 subset checks use exact, type-aware set keys. Comparisons involving complex,
@@ -69,6 +71,12 @@ policy = AttributePolicy(
 ```
 
 Set `on_no_match=MissEffect.ABSTAIN` when another independent grant is valid.
+That alone still denies an indeterminate result, so a request that lacks the
+policy's facts (for example, no device context) is denied even when another
+grant applies. Also set `on_indeterminate=MissEffect.ABSTAIN` when missing facts
+should only mean that this grant path does not apply. An allow policy that
+abstains cannot grant, so this never creates access; keep the default when an
+evaluation failure must block every other grant.
 
 A deny boundary denies on a match and abstains on a no-match by default:
 
@@ -133,7 +141,9 @@ Structural evaluation metadata remains available without supplied values.
 
 `equals(None)` and other comparisons with `None` use an explicit JSON null
 literal. Omitting the operand is distinct and is valid only for operators whose
-shape permits it.
+shape permits it. A comparison whose two attribute operands both resolve to
+`None` is indeterminate, so an absent claim and an empty resource field never
+establish a relationship.
 
 ## Attribute provenance
 

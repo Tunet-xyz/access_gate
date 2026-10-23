@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 
 import pytest
@@ -12,7 +13,9 @@ from access_gate import (
     AttributePolicy,
     ContextAttribute,
     PolicyIntegrityError,
+    PolicySchemaError,
     canonical_policy_bytes,
+    dumps_policy,
     dumps_signed_policy,
     loads_policy,
     loads_signed_policy,
@@ -288,3 +291,52 @@ def test_signed_policy_rejects_unsafe_key_identifiers(bad_value: str) -> None:
 
     with pytest.raises(PolicyIntegrityError, match="key_id"):
         dumps_signed_policy(policy(), signer)
+
+
+class _Role(str, Enum):
+    ADMIN = "admin"
+
+
+def test_literals_that_json_would_retype_cannot_be_identified_or_dumped() -> None:
+    for condition in (
+        ContextAttribute("role").is_in([_Role.ADMIN]),
+        ContextAttribute("labels").equals({1: "x"}),
+        ContextAttribute("grants").equals({_Role.ADMIN: True}),
+    ):
+        lossy = AttributePolicy(condition, name="lossy")
+        with pytest.raises(PolicyIntegrityError, match="canonically serializable"):
+            policy_fingerprint(lossy)
+        with pytest.raises(PolicyIntegrityError):
+            dumps_signed_policy(lossy, HmacSigner(b"secret"))
+        with pytest.raises(PolicySchemaError, match="not JSON serializable"):
+            dumps_policy(lossy)
+
+    targets = AttributePolicy(
+        ContextAttribute("role").equals("admin"),
+        actions=[_Role.ADMIN],
+        name="enum_targets",
+    )
+    restored = loads_policy(dumps_policy(targets))
+    assert policy_fingerprint(restored) == policy_fingerprint(targets)
+
+
+def test_unencodable_policy_text_is_an_integrity_error_before_verification() -> None:
+    document = policy().to_dict()
+    document["name"] = "trusted\ud800"
+    loaded = loads_policy(json.dumps(document))
+    envelope = json.loads(dumps_signed_policy(policy(), HmacSigner(b"secret")))
+    envelope["policy"]["name"] = "trusted\ud800"
+    calls: list[bytes] = []
+
+    class RecordingVerifier:
+        def verify(self, payload: bytes, signature: bytes, *, key_id: str, algorithm: str) -> bool:
+            calls.append(payload)
+            return True
+
+    with pytest.raises(PolicyIntegrityError, match="canonically serializable"):
+        policy_fingerprint(loaded)
+    with pytest.raises(PolicyIntegrityError, match="canonically serializable"):
+        dumps_signed_policy(loaded, HmacSigner(b"secret"))
+    with pytest.raises(PolicyIntegrityError, match="canonically serializable"):
+        loads_signed_policy(json.dumps(envelope), RecordingVerifier())
+    assert calls == []

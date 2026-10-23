@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from access_gate import (
@@ -50,6 +52,11 @@ def test_session_assurance_policy_abstains_for_fresh_matching_evidence() -> None
         (_session_context(session_identifier="x" * 513), "missing_session_identifier"),
         (_session_context(established_at=None), "invalid_verification_time"),
         (_session_context(verified_at="now"), "invalid_verification_time"),
+        (_session_context(established_at=math.nan), "invalid_verification_time"),
+        (_session_context(verified_at=math.inf), "invalid_verification_time"),
+        (_session_context(verified_at=math.nan), "invalid_verification_time"),
+        (_session_context(last_activity_at=-math.inf), "invalid_verification_time"),
+        (_session_context(established_at=-1.0), "invalid_verification_time"),
         (
             _session_context(
                 established_at=0.0,
@@ -86,6 +93,30 @@ def test_session_assurance_policy_denies_an_unauthenticated_subject() -> None:
     decision = policy.evaluate(request)
     assert decision is not None
     assert decision.metadata["assurance_failure"] == "unauthenticated_subject"
+
+
+@pytest.mark.parametrize("clock_value", [math.nan, math.inf, -1.0, True])
+def test_session_assurance_policy_denies_an_invalid_clock(clock_value: object) -> None:
+    policy = SessionAssurancePolicy(clock=lambda: clock_value)  # type: ignore[arg-type,return-value]
+    request = AuthorizationRequest(Subject("1"), "read", context=_session_context())
+    decision = policy.evaluate(request)
+    assert decision is not None
+    assert decision.metadata["assurance_failure"] == "invalid_verification_time"
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"max_verification_age": 0},
+        {"max_verification_age": 3601},
+        {"max_verification_age": True},
+        {"clock_skew": -1},
+        {"clock_skew": 3601},
+    ],
+)
+def test_session_assurance_windows_are_bounded(settings: dict[str, object]) -> None:
+    with pytest.raises(ValueError, match="secure range"):
+        SessionAssurancePolicy(**settings)  # type: ignore[arg-type]
 
 
 def test_session_assurance_policy_cannot_grant_by_itself() -> None:
@@ -255,3 +286,16 @@ def test_authenticated_policy_denies_anonymous_subject() -> None:
     decision = engine.authorize(Subject("", authenticated=False), "profile.read")
 
     assert not decision.allowed
+
+
+def test_authenticated_policy_allows_authenticated_subject_for_targeted_actions() -> None:
+    engine = AuthorizationEngine([AuthenticatedPolicy(actions={"profile.read"})])
+
+    allowed = engine.authorize(Subject("1"), "profile.read")
+    untargeted = AuthenticatedPolicy(actions={"profile.read"}).evaluate(
+        AuthorizationRequest(Subject("1"), "profile.delete")
+    )
+
+    assert allowed.allowed
+    assert allowed.policy == "authenticated"
+    assert untargeted is None

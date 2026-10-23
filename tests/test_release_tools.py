@@ -2,11 +2,22 @@ from __future__ import annotations
 
 import hashlib
 import io
+import re
+import subprocess
 import tarfile
 from pathlib import Path
 
+import pytest
+
+import access_gate
+from tools import verify_reproducible_build as reproducible
 from tools.generate_sbom import generate_sbom
 from tools.normalize_sdist import normalize_sdist
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
+    import tomli as tomllib
 
 
 def test_spdx_sbom_binds_exact_release_artifacts(
@@ -36,11 +47,12 @@ def test_spdx_sbom_binds_exact_release_artifacts(
     }
 
 
-def _write_sdist(path: Path, *, mtime: int) -> None:
+def _write_sdist(path: Path, *, mtime: int, mode: int = 0o644) -> None:
     payload = b"content"
     with tarfile.open(path, "w:gz") as archive:
         member = tarfile.TarInfo("package/file.txt")
         member.size = len(payload)
+        member.mode = mode
         member.mtime = mtime
         member.uid = mtime
         member.gid = mtime
@@ -59,3 +71,53 @@ def test_sdist_normalization_removes_archive_metadata_variance(tmp_path: Path) -
     normalize_sdist(second, 1_700_000_000)
 
     assert first.read_bytes() == second.read_bytes()
+
+
+def test_sdist_normalization_removes_builder_umask(tmp_path: Path) -> None:
+    first = tmp_path / "first.tar.gz"
+    second = tmp_path / "second.tar.gz"
+    _write_sdist(first, mtime=100, mode=0o644)
+    _write_sdist(second, mtime=100, mode=0o664)
+
+    normalize_sdist(first, 1_700_000_000)
+    normalize_sdist(second, 1_700_000_000)
+
+    assert first.read_bytes() == second.read_bytes()
+
+
+def test_reproducible_build_pins_umask_and_releases_the_verified_build(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_build(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert kwargs["umask"] == 0o022
+        output = Path(command[command.index("--outdir") + 1])
+        output.mkdir(parents=True)
+        (output / "accessgate-0-py3-none-any.whl").write_bytes(b"wheel")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1700000000")
+    monkeypatch.setattr(reproducible.subprocess, "run", fake_build)
+    release = tmp_path / "packages"
+
+    result = reproducible.verify_reproducible_build(tmp_path, release)
+
+    assert result["reproducible"] is True
+    assert result["first"] == {
+        path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in release.iterdir()
+    }
+
+
+def test_mutation_testing_copies_every_directory_the_suite_needs() -> None:
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    with pyproject.open("rb") as handle:
+        mutmut = tomllib.load(handle)["tool"]["mutmut"]
+
+    assert {"tools/", "fuzz/", "mcp/"} <= set(mutmut.get("also_copy", ()))
+
+
+def test_security_policy_lists_the_current_release_line() -> None:
+    security = (Path(__file__).resolve().parents[1] / "SECURITY.md").read_text()
+    release_line = ".".join(access_gate.__version__.split(".")[:2])
+
+    assert re.search(rf"^\| {re.escape(release_line)}\.x .*\| Yes \|$", security, re.M)

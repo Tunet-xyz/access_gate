@@ -17,6 +17,7 @@ from access_gate import (
     FunctionPolicy,
     Subject,
 )
+from access_gate.abac import MAX_COLLECTION_ITEMS
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,11 @@ def _best_seconds(operation: object, repeats: int) -> float:
     return min(samples)
 
 
+def _require_allow(decision: Decision | None, policy: str) -> None:
+    if decision is None or not decision.allowed or decision.policy != policy:
+        raise RuntimeError(f"benchmark expected an allow from {policy!r}, got {decision!r}.")
+
+
 def run_benchmarks(config: BenchmarkConfig | None = None) -> dict[str, float]:
     """Measure bounded collection matching and action-indexed evaluation."""
 
@@ -57,9 +63,13 @@ def run_benchmarks(config: BenchmarkConfig | None = None) -> dict[str, float]:
         config.repeats,
     ) <= 0:
         raise ValueError("benchmark sizes and repeats must be positive.")
+    if config.collection_items > MAX_COLLECTION_ITEMS:
+        raise ValueError("collection_items must not exceed the ABAC collection size limit.")
 
+    # Both operands hold exactly collection_items values and share one, so the
+    # timed comparison runs to completion instead of stopping at a bound check.
     values = list(range(config.collection_items))
-    overlap = list(range(config.collection_items - 1, config.collection_items * 2))
+    overlap = list(range(config.collection_items - 1, config.collection_items * 2 - 1))
     request = AuthorizationRequest(
         Subject("benchmark-subject"),
         "records.read",
@@ -69,6 +79,7 @@ def run_benchmarks(config: BenchmarkConfig | None = None) -> dict[str, float]:
         ContextAttribute("left").intersects(ContextAttribute("right")),
         name="collection",
     )
+    _require_allow(collection_policy.evaluate(request), "collection")
     collection_seconds = _best_seconds(
         lambda: collection_policy.evaluate(request),
         config.repeats,
@@ -97,6 +108,7 @@ def run_benchmarks(config: BenchmarkConfig | None = None) -> dict[str, float]:
     tracemalloc.stop()
 
     decision_request = AuthorizationRequest(Subject("benchmark-subject"), "records.read")
+    _require_allow(engine.decide(decision_request), "target")
     indexed_decisions_seconds = _best_seconds(
         lambda: [engine.decide(decision_request) for _ in range(config.decisions)],
         config.repeats,

@@ -7,7 +7,9 @@ condition shapes are rejected. There is no implicit migration or best-effort
 interpretation.
 
 Canonical policy bytes use UTF-8 JSON with sorted object keys, compact
-separators, Unicode preserved, and non-finite numbers rejected. The identifier
+separators, Unicode preserved, and non-finite numbers rejected. Literal strings
+must be plain `str` values (not enum members) and literal object keys must be
+plain `str` values too, so the bytes reload as the same policy. The identifier
 `access_gate.canonical-json.v1` describes this package-specific representation;
 it is not a claim of RFC 8785 compatibility. Policy-set fingerprints include
 configured order because order can affect diagnostic selection.

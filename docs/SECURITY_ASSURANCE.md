@@ -14,7 +14,7 @@ independent security certification.
 | Untrusted policy input is bounded and strict | ABAC parser/schema, signed envelope parser | parser boundary, tampering, property and fuzz suites |
 | Policy deployments can be identified and verified | `integrity.py`, engine `policy_set_id` | fingerprint, envelope tamper, duplicate-name tests |
 | Runtime cost has explicit regression limits | indexed policies and bounded collections | `authorization_benchmark --enforce` |
-| Release bytes are traceable | locked build tools, reproducibility, SPDX, checksums, attestations | publish workflow and release-tool tests |
+| Release bytes are traceable | locked build tools, reproducibility, SPDX, checksums, PyPI (PEP 740) attestations | publish workflow and release-tool tests |
 
 ## Evidence commands
 
@@ -31,10 +31,18 @@ python -m tools.authorization_benchmark --enforce
 python -m tools.verify_reproducible_build
 ```
 
-Scheduled CI additionally runs native fuzz targets, mutation testing, CodeQL,
-and OpenSSF Scorecard. Preserve workflow URLs, logs, commit SHA, runner image,
-dependency resolution, benchmark JSON, mutation results, release checksums,
-SBOM, and attestations as the assessment evidence bundle.
+Manually dispatched workflows additionally run native fuzz targets, mutation
+testing, CodeQL, and OpenSSF Scorecard; nothing runs on a schedule, so record
+which of them ran for the assessed commit. Preserve workflow URLs, logs, commit
+SHA, runner image, dependency resolution, benchmark JSON, mutation results,
+release checksums, SBOM, and PyPI provenance as the assessment evidence bundle.
+
+Mutation results are review input, not passing evidence yet. `mutmut` 3 does
+not mutate decorated classes, so every `@dataclass` policy, ABAC condition node,
+request/decision type and `DjangoAuthorizer` is outside its scope; their
+behavior is pinned by targeted negative tests instead. For the remaining
+functions the run still reports untriaged surviving mutants, so
+`tools.check_mutation_results` fails until they are killed or reviewed.
 
 ## Manual evidence still required
 

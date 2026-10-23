@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import math
 import sys
@@ -58,6 +59,10 @@ def parse_message(document: str) -> object:
         raise TypeError("MCP messages must be strings.")
     if len(document) > MAX_MESSAGE_CHARS:
         raise ValueError("MCP message exceeds the size limit.")
+    try:
+        document.encode("utf-8")
+    except UnicodeEncodeError as error:
+        raise ValueError("MCP messages must be valid UTF-8.") from error
     return json.loads(
         document,
         parse_constant=_reject_json_constant,
@@ -73,7 +78,8 @@ def load_contract() -> dict[str, Any]:
 
 
 def compact_json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    # ASCII output is valid UTF-8 under any locale and keeps lone surrogates as escapes.
+    return json.dumps(value, ensure_ascii=True, separators=(",", ":"))
 
 
 def pretty_json(value: Any) -> str:
@@ -81,7 +87,14 @@ def pretty_json(value: Any) -> str:
 
 
 def write_message(message: dict[str, Any]) -> None:
-    sys.stdout.write(compact_json(message) + "\n")
+    try:
+        document = compact_json(message)
+    except (RecursionError, TypeError, ValueError):
+        request_id = message.get("id")
+        if isinstance(request_id, bool) or not isinstance(request_id, str | int):
+            request_id = None
+        document = compact_json(error(request_id, -32603, "Internal error"))
+    sys.stdout.write(document + "\n")
     sys.stdout.flush()
 
 
@@ -155,7 +168,7 @@ def list_tools(contract: dict[str, Any]) -> dict[str, Any]:
                 "title": tool.get("title", tool["name"].replace("_", " ").title()),
                 "description": tool.get("description", ""),
                 "inputSchema": tool.get("inputSchema", {"type": "object", "properties": {}}),
-                "outputSchema": tool.get("outputSchema"),
+                **({"outputSchema": tool["outputSchema"]} if "outputSchema" in tool else {}),
                 "annotations": tool.get("annotations", {}),
             }
             for tool in contract.get("tools", [])
@@ -268,12 +281,12 @@ def handle(message: object, contract: dict[str, Any]) -> dict[str, Any] | None:
 
     is_notification = "id" not in message
     request_id = message.get("id")
-    if message.get("jsonrpc") != "2.0":
-        return None if is_notification else error(request_id, -32600, "Invalid Request")
     if not is_notification and (
-        isinstance(request_id, bool) or not isinstance(request_id, str | int | type(None))
+        isinstance(request_id, bool) or not isinstance(request_id, str | int)
     ):
         return error(None, -32600, "Invalid Request")
+    if message.get("jsonrpc") != "2.0":
+        return None if is_notification else error(request_id, -32600, "Invalid Request")
     method = message.get("method")
     if not isinstance(method, str) or not method:
         return None if is_notification else error(request_id, -32600, "Invalid Request")
@@ -304,6 +317,8 @@ def handle(message: object, contract: dict[str, Any]) -> dict[str, Any] | None:
                     "instructions": contract.get("instructions", ""),
                 },
             )
+        elif method == "ping":
+            response = result(request_id, {})
         elif method == "resources/list":
             response = result(request_id, list_resources(contract))
         elif method == "resources/read":
@@ -353,6 +368,9 @@ def handle(message: object, contract: dict[str, Any]) -> dict[str, Any] | None:
 
 def main() -> None:
     contract = load_contract()
+    if isinstance(sys.stdin, io.TextIOWrapper):
+        # MCP stdio is UTF-8 whatever the locale; parse_message rejects undecodable bytes.
+        sys.stdin.reconfigure(encoding="utf-8", errors="surrogateescape")
     while True:
         line = sys.stdin.readline(MAX_MESSAGE_CHARS + 1)
         if not line:

@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 def normalize_sdist(path: Path, source_date_epoch: int) -> None:
-    """Rewrite one ``.tar.gz`` with stable ordering, ownership and timestamps."""
+    """Rewrite one ``.tar.gz`` with stable ordering, ownership, modes and timestamps."""
 
     if source_date_epoch < 0:
         raise ValueError("source_date_epoch must not be negative.")
@@ -27,6 +27,8 @@ def normalize_sdist(path: Path, source_date_epoch: int) -> None:
         for original in sorted(source.getmembers(), key=lambda member: member.name):
             member = copy.copy(original)
             member.mtime = source_date_epoch
+            # The builder's umask must not leak into release bytes.
+            member.mode = 0o755 if member.isdir() or member.mode & 0o111 else 0o644
             member.uid = 0
             member.gid = 0
             member.uname = ""

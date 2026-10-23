@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from io import StringIO
@@ -356,3 +357,108 @@ def test_strict_mcp_parser_enforces_type_and_size_bounds() -> None:
         mcp_server.parse_message(b"{}")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="size limit"):
         mcp_server.parse_message(" " * (mcp_server.MAX_MESSAGE_CHARS + 1))
+
+
+def test_stdio_output_is_ascii_and_survives_lone_surrogates(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: Any,
+) -> None:
+    lines = [
+        '{"jsonrpc":"2.0","id":"\\ud83d","method":"tools/list"}',
+        '{"jsonrpc":"2.0","id":2,"method":"x\\udc00"}',
+        '{"jsonrpc":"2.0","id":3,"method":"initialize"}',
+    ]
+    monkeypatch.setattr(sys, "stdin", StringIO("\n".join(lines) + "\n"))
+
+    mcp_server.main()
+
+    output = capsys.readouterr().out
+    assert output.isascii()
+    responses = [json.loads(line) for line in output.splitlines()]
+    assert responses[0]["id"] == "\ud83d"
+    assert responses[1]["error"]["message"] == "Method not found: x\udc00"
+    assert responses[2]["result"]["serverInfo"]["name"] == "access-gate-public-contract-mcp"
+
+
+def test_unserializable_response_becomes_an_internal_error(capsys: Any) -> None:
+    deep: list[object] = []
+    for _ in range(100_000):
+        deep = [deep]
+
+    mcp_server.write_message({"jsonrpc": "2.0", "id": 5, "result": {"value": deep}})
+    mcp_server.write_message({"jsonrpc": "2.0", "id": [deep], "error": {"code": -32600}})
+
+    first, second = (json.loads(line) for line in capsys.readouterr().out.splitlines())
+    assert first == {
+        "jsonrpc": "2.0",
+        "id": 5,
+        "error": {"code": -32603, "message": "Internal error"},
+    }
+    assert second["id"] is None
+    assert second["error"]["code"] == -32603
+
+
+def test_stdio_server_decodes_utf8_whatever_the_locale_encoding() -> None:
+    goal = "\u0141\u00f3d\u017a \u2192 \u691c"
+    lines = [
+        b'{"jsonrpc":"2.0","id":1,"method":"\xff"}',
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "prompts/get",
+                "params": {"name": "agent_onboarding", "arguments": {"user_goal": goal}},
+            },
+            ensure_ascii=False,
+        ).encode("utf-8"),
+        b'{"jsonrpc":"2.0","id":3,"method":"initialize"}',
+    ]
+    for encoding in ("utf-8:strict", "cp1252"):
+        completed = subprocess.run(
+            [sys.executable, str(ROOT / "mcp" / "server.py")],
+            cwd=ROOT,
+            input=b"\n".join(lines) + b"\n",
+            capture_output=True,
+            env={**os.environ, "PYTHONIOENCODING": encoding},
+            check=True,
+            timeout=20,
+        )
+        responses = [json.loads(line.decode("utf-8")) for line in completed.stdout.splitlines()]
+
+        assert responses[0]["error"]["code"] == -32700
+        assert responses[0]["error"]["data"]["detail"] == "MCP messages must be valid UTF-8."
+        assert goal in responses[1]["result"]["messages"][0]["content"]["text"]
+        assert responses[2]["result"]["serverInfo"]["name"] == "access-gate-public-contract-mcp"
+
+
+def test_strict_mcp_parser_rejects_text_that_is_not_utf8() -> None:
+    with pytest.raises(ValueError, match="valid UTF-8"):
+        mcp_server.parse_message('{"jsonrpc":"2.0","id":1,"method":"\udcff"}')
+
+
+def test_tool_list_and_ping_follow_the_mcp_schema() -> None:
+    contract = load_contract()
+    tools = handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, contract)
+    ping = handle({"jsonrpc": "2.0", "id": 2, "method": "ping"}, contract)
+    null_id = handle({"jsonrpc": "2.0", "id": None, "method": "tools/list"}, contract)
+
+    assert tools is not None
+    for tool in tools["result"]["tools"]:
+        assert all(value is not None for value in tool.values())
+        assert isinstance(tool.get("outputSchema", {}), dict)
+    assert ping == {"jsonrpc": "2.0", "id": 2, "result": {}}
+    assert null_id is not None
+    assert null_id["error"]["code"] == -32600
+
+
+def test_invalid_request_ids_are_never_echoed() -> None:
+    response = handle(
+        {"jsonrpc": "1.0", "id": {"nested": [1, 2, {"x": "y"}]}, "method": "tools/list"},
+        load_contract(),
+    )
+
+    assert response == {
+        "jsonrpc": "2.0",
+        "id": None,
+        "error": {"code": -32600, "message": "Invalid Request"},
+    }
