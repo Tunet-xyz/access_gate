@@ -109,26 +109,37 @@ def _reject_nan(value: object) -> None:
         raise ValueError("NaN is not a comparable authorization value.")
 
 
-def _equal(left: object, right: object) -> bool:
+def _equal(left: object, right: object, budget: _ComparisonBudget | None = None) -> bool:
     _reject_nan(left)
     _reject_nan(right)
     if _is_number(left) and _is_number(right):
         return bool(left == right)
     if type(left) is not type(right):
         return False
-    # Containers are compared member by member so nested values keep the same
-    # type-aware semantics as top-level ones (``[True]`` never equals ``[1]``).
+    if not isinstance(left, tuple | list | Mapping | frozenset | set):
+        return bool(left == right)
+    if budget is None:
+        budget = _ComparisonBudget()
+    # Containers keep the same type-aware semantics as top-level values
+    # (``[True]`` never equals ``[1]``). A hashable container's exact key
+    # encodes exactly that, and is computed once per operator call.
+    if isinstance(left, tuple | frozenset):
+        left_key = _exact_key(left, budget)
+        if left_key is not _UNHASHABLE:
+            right_key = _exact_key(right, budget)
+            if right_key is not _UNHASHABLE:
+                return left_key == right_key
     if isinstance(left, tuple | list):
         items = cast(Sequence[object], right)
-        return len(left) == len(items) and all(map(_equal, left, items))
+        return len(left) == len(items) and all(
+            _equal(a, b, budget) for a, b in zip(left, items, strict=True)
+        )
     if isinstance(left, Mapping):
         mapping = cast(Mapping[object, object], right)
-        return _same_members(left, mapping) and all(
-            _equal(value, mapping[key]) for key, value in left.items()
+        return _same_members(left, mapping, budget) and all(
+            _equal(value, mapping[key], budget) for key, value in left.items()
         )
-    if isinstance(left, frozenset | set):
-        return _same_members(left, cast(Collection[object], right))
-    return bool(left == right)
+    return _same_members(left, cast(Collection[object], right), budget)
 
 
 def _collection(value: object) -> Collection[object] | Mapping[object, object] | None:
@@ -157,7 +168,27 @@ def _required_collection(
 _UNHASHABLE = object()
 
 
-def _exact_key(value: object) -> object:
+class _ComparisonBudget:
+    """Cost accounting shared by every nested comparison of one operator call.
+
+    Hashable container keys are memoized by identity (holding the container, so
+    its id cannot be reused), and every member-by-member fallback draws on one
+    budget, so nested values cannot multiply the per-level limit.
+    """
+
+    __slots__ = ("keys", "remaining")
+
+    def __init__(self) -> None:
+        self.keys: dict[int, tuple[object, object]] = {}
+        self.remaining = MAX_FALLBACK_COMPARISONS
+
+    def charge(self, comparisons: int) -> None:
+        self.remaining -= comparisons
+        if self.remaining < 0:
+            raise ValueError("Collection comparison exceeds the safe comparison limit.")
+
+
+def _exact_key(value: object, budget: _ComparisonBudget | None = None) -> object:
     if isinstance(value, bool):
         return ("bool", value)
     if isinstance(value, int | float):
@@ -170,13 +201,49 @@ def _exact_key(value: object) -> object:
         return (type(value), value)
     if value is None:
         return ("none", None)
-    return _UNHASHABLE
+    if isinstance(value, tuple | frozenset):
+        if budget is None:
+            budget = _ComparisonBudget()
+        cached = budget.keys.get(id(value))
+        if cached is not None and cached[0] is value:
+            return cached[1]
+        key = _container_key(value, budget)
+        budget.keys[id(value)] = (value, key)
+        return key
+    if isinstance(value, Mapping | list | set):
+        # Unhashable containers keep the capped member-by-member comparison.
+        return _UNHASHABLE
+    try:
+        _reject_nan(value)
+        hash(value)
+    except (TypeError, ValueError):
+        # Unhashable values and NaNs are compared member by member, where
+        # ``_equal`` rejects a NaN.
+        return _UNHASHABLE
+    # Other hashable values (UUID, date, Enum, Decimal) compare by exact type
+    # and ``==``, as ``_equal`` does.
+    return (type(value), value)
 
 
-def _exact_key_set(values: Collection[object] | Mapping[object, object]) -> set[object] | None:
+def _container_key(
+    value: tuple[object, ...] | frozenset[object], budget: _ComparisonBudget
+) -> object:
+    keys: list[object] = []
+    for item in value:
+        key = _exact_key(item, budget)
+        if key is _UNHASHABLE:
+            return _UNHASHABLE
+        keys.append(key)
+    return (type(value), tuple(keys) if isinstance(value, tuple) else frozenset(keys))
+
+
+def _exact_key_set(
+    values: Collection[object] | Mapping[object, object],
+    budget: _ComparisonBudget | None = None,
+) -> set[object] | None:
     keys: set[object] = set()
     for value in values:
-        key = _exact_key(value)
+        key = _exact_key(value, budget)
         if key is _UNHASHABLE:
             return None
         keys.add(key)
@@ -186,45 +253,49 @@ def _exact_key_set(values: Collection[object] | Mapping[object, object]) -> set[
 def _same_members(
     left: Collection[object] | Mapping[object, object],
     right: Collection[object] | Mapping[object, object],
+    budget: _ComparisonBudget,
 ) -> bool:
     if len(left) != len(right):
         return False
-    left_keys = _exact_key_set(left)
-    right_keys = _exact_key_set(right)
+    left_keys = _exact_key_set(left, budget)
+    right_keys = _exact_key_set(right, budget)
     if left_keys is not None and right_keys is not None:
         return left_keys == right_keys
-    if len(left) * len(right) > MAX_FALLBACK_COMPARISONS:
-        raise ValueError("Collection comparison exceeds the safe comparison limit.")
-    return all(any(_equal(item, other) for other in right) for item in left)
+    # One budget covers every nested fallback of the operator call.
+    budget.charge(len(left) * len(right))
+    return all(any(_equal(item, other, budget) for other in right) for item in left)
 
 
 def _contains(container: object, member: object) -> bool:
     values = _required_collection(container, operand="collection")
-    return any(_equal(candidate, member) for candidate in values)
+    budget = _ComparisonBudget()
+    return any(_equal(candidate, member, budget) for candidate in values)
 
 
 def _intersects(left: object, right: object) -> bool:
     left_values = _required_collection(left, operand="left")
     right_values = _required_collection(right, operand="right")
-    left_keys = _exact_key_set(left_values)
-    right_keys = _exact_key_set(right_values)
+    budget = _ComparisonBudget()
+    left_keys = _exact_key_set(left_values, budget)
+    right_keys = _exact_key_set(right_values, budget)
     if left_keys is not None and right_keys is not None:
         return not left_keys.isdisjoint(right_keys)
-    if len(left_values) * len(right_values) > MAX_FALLBACK_COMPARISONS:
-        raise ValueError("Collection comparison exceeds the safe comparison limit.")
-    return any(_equal(a, b) for a in left_values for b in right_values)
+    budget.charge(len(left_values) * len(right_values))
+    return any(_equal(a, b, budget) for a in left_values for b in right_values)
 
 
 def _subset_of(left: object, right: object) -> bool:
     left_values = _required_collection(left, operand="left")
     right_values = _required_collection(right, operand="right")
-    left_keys = _exact_key_set(left_values)
-    right_keys = _exact_key_set(right_values)
+    budget = _ComparisonBudget()
+    left_keys = _exact_key_set(left_values, budget)
+    right_keys = _exact_key_set(right_values, budget)
     if left_keys is not None and right_keys is not None:
         return left_keys <= right_keys
-    if len(left_values) * len(right_values) > MAX_FALLBACK_COMPARISONS:
-        raise ValueError("Collection comparison exceeds the safe comparison limit.")
-    return all(any(_equal(item, candidate) for candidate in right_values) for item in left_values)
+    budget.charge(len(left_values) * len(right_values))
+    return all(
+        any(_equal(item, candidate, budget) for candidate in right_values) for item in left_values
+    )
 
 
 def _ordered(left: object, right: object, operation: str) -> bool:

@@ -335,7 +335,7 @@ def test_main_bounds_messages_and_continues_processing(
     responses = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert responses[0]["error"]["message"] == "Message exceeds the size limit"
     assert responses[1]["error"]["code"] == -32700
-    assert responses[2]["result"]["serverInfo"]["version"] == "0.3.0a1"
+    assert responses[2]["result"]["serverInfo"]["version"] == "0.3.0a2"
 
 
 @pytest.mark.parametrize(

@@ -143,7 +143,7 @@ def _freeze_value(
         finally:
             seen.remove(identity)
 
-    if isinstance(value, bytearray):
+    if isinstance(value, bytearray | memoryview):
         return bytes(value)
 
     if isinstance(value, MutableSequence | MutableSet | KeysView | ItemsView | ValuesView):

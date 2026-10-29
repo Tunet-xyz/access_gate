@@ -105,7 +105,7 @@ def _reference_freeze_value(
             return frozenset(frozen_items)
         finally:
             seen.remove(identity)
-    if isinstance(value, bytearray):
+    if isinstance(value, bytearray | memoryview):
         return bytes(value)
     if isinstance(value, MutableSequence | MutableSet | KeysView | ItemsView | ValuesView):
         identity = id(value)

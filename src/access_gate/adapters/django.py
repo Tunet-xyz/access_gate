@@ -123,7 +123,8 @@ class DjangoAuthorizer:
     resource, subject, context, or action attributes, or while building the
     authorization request. ``RAISE`` (the default) propagates them. ``DENY``
     turns them into a denial from the ``access_gate.resolver`` policy that is
-    audited by the engine and passed to ``denial_handler``. Django's ``Http404``
+    audited by the engine; ``require()`` passes it to ``denial_handler`` and
+    ``check()``/``acheck()`` return it. Django's ``Http404``
     and ``PermissionDenied`` always propagate.
 
     In async views the engine, and so every policy and audit sink, runs through
@@ -156,7 +157,11 @@ class DjangoAuthorizer:
         *,
         resource: Resource | None = None,
     ) -> Decision:
-        """Return the audited decision for an action inside a synchronous view."""
+        """Return the audited decision for an action inside a synchronous view.
+
+        Test ``Decision.allowed``: a decision object is truthy even when it
+        denies, and the denial handler is not called.
+        """
 
         return self._decide(request, action, None if resource is None else lambda: resource)
 
@@ -167,7 +172,11 @@ class DjangoAuthorizer:
         *,
         resource: Resource | None = None,
     ) -> Decision:
-        """Return the audited decision for an action inside an asynchronous view."""
+        """Return the audited decision for an action inside an asynchronous view.
+
+        Test ``Decision.allowed``: a decision object is truthy even when it
+        denies, and the denial handler is not called.
+        """
 
         return await self._adecide(request, action, None if resource is None else lambda: resource)
 

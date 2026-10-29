@@ -104,12 +104,19 @@ def test_other_mutable_containers_are_snapshotted() -> None:
     teams = UserList(["safety"])
     ids = array("i", [1])
     raw = bytearray(b"a")
+    buffer = bytearray(b"m")
     scopes = {"read": True}
     trail = deque(["policy-a"])
     request = AuthorizationRequest(
         Subject("user-1", attributes={"groups": groups, "teams": teams}),
         "read",
-        context={"ids": ids, "raw": raw, "scopes": scopes.keys(), "flags": scopes.values()},
+        context={
+            "ids": ids,
+            "raw": raw,
+            "view": memoryview(buffer),
+            "scopes": scopes.keys(),
+            "flags": scopes.values(),
+        },
     )
     decision = Decision.deny("Denied.", metadata={"trail": trail})
 
@@ -117,6 +124,7 @@ def test_other_mutable_containers_are_snapshotted() -> None:
     teams.append("finance")
     ids.append(2)
     raw += b"b"
+    buffer[0] = ord("z")
     scopes["write"] = False
     trail.append("tampered")
 
@@ -124,6 +132,7 @@ def test_other_mutable_containers_are_snapshotted() -> None:
     assert request.subject.attributes["teams"] == ("safety",)
     assert request.context["ids"] == (1,)
     assert request.context["raw"] == b"a"
+    assert request.context["view"] == b"m"
     assert request.context["scopes"] == frozenset({"read"})
     assert request.context["flags"] == (True,)
     assert decision.metadata["trail"] == ("policy-a",)

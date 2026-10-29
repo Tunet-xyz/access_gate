@@ -18,7 +18,7 @@
   "server": {
     "name": "access-gate-public-contract-mcp",
     "title": "AccessGate Public Agent Contract",
-    "version": "0.3.0a1",
+    "version": "0.3.0a2",
     "transport": "stdio",
     "required": true,
     "hostedEndpoint": "https://github.com/Tunet-xyz/access_gate/tree/main/mcp"

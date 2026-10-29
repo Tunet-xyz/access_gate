@@ -39,8 +39,12 @@ subject-mismatched evidence denies; valid evidence never grants by itself.
 - **Fail closed:** policy and audit failures deny access by default.
 - **Exact matching:** built-in role, action, owner, and tenant comparisons never
   use substring matching.
-- **Safe ABAC:** missing attributes and operator failures are indeterminate,
-  cannot be negated into access, and deny by default.
+- **Safe ABAC:** missing attributes, two attributes that are both null, NaN
+  operands, non-numeric operands to ordered comparisons, non-collection operands
+  to collection operators, and operator failures are indeterminate, cannot be
+  negated into access, and deny by default. Equality and membership are
+  type-aware, so a value of another type is a definite non-match that `neq`,
+  `not_in` and `Not` turn into a match.
 - **Immutable inputs:** request attributes, literal values, and decision metadata
   are recursively snapshotted before evaluation or audit.
 - **Bounded evaluation:** serialized policies, condition trees, MCP messages, and
@@ -226,16 +230,33 @@ model with `sub`, resolve the subject from `sub` (or align SessionArmor's
 The adapter also accepts custom context and action-attribute resolvers for ABAC.
 Synchronous and asynchronous Django views are supported. Async views may use
 awaitable subject, resource, context, action-attribute, and denial resolvers.
+In an async view the default subject resolver and the engine (every policy and
+the audit sink) run in a worker thread through `sync_to_async`, so ORM-backed
+policies and sinks work; pass `async_engine_in_thread=False` to keep a
+non-blocking engine on the event loop.
 `default_context_resolver()` provides `method`, `path`, and, when the request
 carries SessionArmor evidence, `session_assurance`.
 
 `authorizer.check(request, action, resource=...)`, or `acheck()` in an async
 view, returns the audited decision for an object- or action-level check made
-inside a view with the same resolvers. Resolver exceptions propagate by
-default. With `resolver_error_mode=ErrorMode.DENY`, a failure to resolve the
-inputs or build the request becomes an audited denial from the
-`access_gate.resolver` policy and is passed to the denial handler; `Http404`
-and `PermissionDenied` still propagate.
+inside a view with the same resolvers. Test `decision.allowed`; a `Decision`
+object is truthy even when it denies:
+
+```python
+resource = Resource("incident", str(incident.pk))
+decision = authorizer.check(request, "incident.update", resource=resource)
+if not decision.allowed:
+    raise PermissionDenied
+```
+
+Resolver exceptions propagate by default. With
+`resolver_error_mode=ErrorMode.DENY`, a failure to resolve the inputs or build
+the request becomes an audited denial from the `access_gate.resolver` policy.
+`require()` passes that denial to the denial handler; `check()` and `acheck()`
+return it and never call the denial handler. `Http404` and `PermissionDenied`
+still propagate. Outside the adapter,
+`AuthorizationEngine.record_denial(request, decision)` sends a denial reached
+without policy evaluation through the same audit path.
 
 ## MCP server
 

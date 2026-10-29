@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+from datetime import date, timedelta
 from enum import Enum
+from uuid import UUID
 
 import pytest
 
@@ -25,6 +27,7 @@ from access_gate import (
     Resource,
     Subject,
     SubjectAttribute,
+    abac,
     attribute_policy_from_dict,
     condition_from_dict,
     dumps_policy,
@@ -261,6 +264,100 @@ def test_complex_collection_comparison_budget_fails_closed() -> None:
     assert state(ContextAttribute("left").intersects(ContextAttribute("right")), value) is (
         ConditionState.INDETERMINATE
     )
+
+
+@pytest.mark.parametrize(
+    "members",
+    [
+        [UUID(int=index) for index in range(1_000)],
+        [date(2000, 1, 1) + timedelta(days=index) for index in range(500)],
+        [("item", index) for index in range(500)],
+    ],
+    ids=["uuids", "dates", "tuples"],
+)
+def test_hashable_members_compare_by_exact_key_beyond_the_fallback_budget(
+    members: list[object],
+) -> None:
+    other = [*members[:-1], ("other",)]
+    value = request(
+        context={
+            "set": frozenset(members),
+            "same_set": frozenset(members),
+            "other_set": frozenset(other),
+            "keyed": dict.fromkeys(members, True),
+            "same_keyed": dict.fromkeys(members, True),
+            "list": members,
+            "other_list": other,
+        }
+    )
+
+    assert state(ContextAttribute("set").equals(ContextAttribute("same_set")), value) is (
+        ConditionState.MATCH
+    )
+    assert state(ContextAttribute("keyed").equals(ContextAttribute("same_keyed")), value) is (
+        ConditionState.MATCH
+    )
+    assert state(
+        Comparison(ContextAttribute("set"), "neq", ContextAttribute("other_set")), value
+    ) is (ConditionState.MATCH)
+    assert state(ContextAttribute("list").intersects(ContextAttribute("other_list")), value) is (
+        ConditionState.MATCH
+    )
+    assert state(
+        Comparison(ContextAttribute("list"), "subset_of", ContextAttribute("other_list")), value
+    ) is (ConditionState.NO_MATCH)
+
+
+def test_exact_keys_of_hashable_containers_stay_type_aware() -> None:
+    value = request(
+        context={
+            "bools": frozenset({(True,), frozenset({True})}),
+            "ints": frozenset({(1,), frozenset({1})}),
+            "floats": frozenset({(1.0,), frozenset({1.0})}),
+        }
+    )
+
+    assert state(ContextAttribute("bools").equals(ContextAttribute("ints")), value) is (
+        ConditionState.NO_MATCH
+    )
+    assert state(ContextAttribute("ints").equals(ContextAttribute("floats")), value) is (
+        ConditionState.MATCH
+    )
+
+
+def test_nested_collection_comparisons_share_one_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = 0
+    original = abac._equal
+
+    def counting(*args: object) -> bool:
+        nonlocal calls
+        calls += 1
+        return original(*args)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(abac, "_equal", counting)
+    shared = [UUID(int=index) for index in range(39)]
+
+    def sets(offset: int) -> frozenset[frozenset[UUID]]:
+        return frozenset(frozenset([*shared, UUID(int=offset + index)]) for index in range(40))
+
+    value = request(
+        context={
+            "left": sets(1_000),
+            "right": sets(1_000),
+            "member": frozenset([*shared, UUID(int=999)]),
+            "candidates": list(sets(1_000)),
+        }
+    )
+
+    assert state(ContextAttribute("left").equals(ContextAttribute("right")), value) is (
+        ConditionState.MATCH
+    )
+    assert state(ContextAttribute("member").is_in(ContextAttribute("candidates")), value) is (
+        ConditionState.NO_MATCH
+    )
+    # Member-by-member nesting used to multiply the per-level limit: about a
+    # million comparisons here, and minutes for larger values.
+    assert calls < 1_000
 
 
 def test_policy_can_explicitly_abstain_on_indeterminate() -> None:

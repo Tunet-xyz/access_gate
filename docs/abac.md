@@ -52,10 +52,13 @@ date operand to an ordered comparison is indeterminate, and so is any built-in
 comparison involving a NaN (`float`, `Decimal` or `complex`). Register an
 explicitly named custom operator if a domain requires different semantics.
 
-Collection operands are limited to 10,000 items. Primitive intersections and
-subset checks use exact, type-aware set keys. Comparisons involving complex,
-unhashable values retain exact semantics but are capped at 100,000 candidate
-pairs; exceeding the limit is indeterminate and therefore denies by default.
+Collection operands are limited to 10,000 items. Hashable values (strings,
+bytes, numbers, booleans, `None`, UUIDs, dates, enum members, and tuples and
+frozensets of them) are compared through exact, type-aware keys, including as
+set members and mapping keys. Comparisons involving unhashable values
+(mappings, lists, sets) or a NaN retain exact semantics but are capped at
+100,000 candidate pairs per operator, nested comparisons included; exceeding the
+limit is indeterminate and therefore denies by default.
 
 ## Grant and boundary policies
 

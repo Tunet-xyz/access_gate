@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0a2] - 2026-10-29
+
 ### Security
 
 - A comparison whose two attribute operands both resolve to `None` is now
@@ -43,18 +45,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   passed to the denial handler. The default `RAISE` is unchanged, and `Http404`
   and `PermissionDenied` still propagate.
 - `DjangoAuthorizer.check()` and `acheck()` return an audited decision for checks
-  inside a view; `AuthorizationEngine.record_denial()` audits a denial reached
-  without policy evaluation.
+  inside a view (test `decision.allowed`; they never call the denial handler);
+  `AuthorizationEngine.record_denial()` audits a denial reached without policy
+  evaluation.
 
 ### Changed
 
-- `eq`/`neq` apply type-aware equality inside lists, mappings and sets (`[True]`
-  no longer equals `[1]`), and `intersects`/`subset_of`/`superset_of` no longer
-  treat a `str` subclass such as a `StrEnum` member as a plain string.
+- `eq`/`neq` and the collection operators (`in`, `contains`, `intersects`,
+  `subset_of`, `superset_of` and their negations) apply type-aware equality
+  inside lists, mappings and sets (`[True]` no longer equals `[1]` or is `in`
+  `[[1]]`), and `intersects`/`subset_of`/`superset_of` no longer treat a `str`
+  subclass such as a `StrEnum` member as a plain string.
+- Exact, type-aware comparison keys also cover UUIDs, dates, enum members and
+  tuples and frozensets of hashable values. Sets and mapping keys of them compare
+  in linear time, and `intersects`/`subset_of`/`superset_of` over them are no
+  longer indeterminate when the two sizes multiply to more than 100,000. The
+  100,000-pair fallback limit for unhashable values now covers nested
+  comparisons in total.
 - Deques, `UserList`, `array`, dictionary views, other mutable sequences and
-  sets, and `bytearray` in request attributes, policy literals and decision
-  metadata are copied into tuples, frozensets and bytes, so later caller
-  mutation cannot change a decision or its audit record.
+  sets, `bytearray` and `memoryview` in request attributes, policy literals and
+  decision metadata are copied into tuples, frozensets and bytes, so later
+  caller mutation cannot change a decision or its audit record.
 - Subject, request and policy construction is faster: exact built-in scalars
   skip the container checks, and policies without custom operators share a
   pre-validated built-in operator table. Decisions are unchanged.

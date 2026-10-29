@@ -25,7 +25,8 @@ python -m pip install -e ".[dev,assurance]"
 ruff check src tests fuzz tools
 mypy src/access_gate
 bandit -r src/access_gate
-pip-audit --strict --skip-editable
+python -m pip freeze --exclude-editable > /tmp/accessgate-deps.txt
+pip-audit --strict --disable-pip --no-deps -r /tmp/accessgate-deps.txt
 pytest --cov=access_gate --cov-branch --cov-report=term-missing
 python -m tools.authorization_benchmark --enforce
 python -m tools.verify_reproducible_build
