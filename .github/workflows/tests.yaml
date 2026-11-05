@@ -7,6 +7,7 @@ permissions:
 
 jobs:
   test:
+    if: github.event_name == 'workflow_dispatch' && github.actor == 'bezu-1'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -47,6 +48,7 @@ jobs:
           fail_ci_if_error: false
 
   django-minimum:
+    if: github.event_name == 'workflow_dispatch' && github.actor == 'bezu-1'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

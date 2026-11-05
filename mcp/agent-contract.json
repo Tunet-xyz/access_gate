@@ -21,7 +21,8 @@
     "version": "1.0.0",
     "transport": "stdio",
     "required": true,
-    "hostedEndpoint": "https://github.com/Tunet-xyz/access_gate/tree/main/mcp"
+    "documentationUrl": "https://github.com/Tunet-xyz/access_gate/tree/main/mcp",
+    "hostedEndpoint": null
   },
   "instructions": "Use AccessGate to design and validate authorization policies, not to authenticate callers or infer permissions from unverified data. Prefer synthetic examples, preserve exact action and attribute matching, and require review before production rollout.",
   "publicAccess": {
