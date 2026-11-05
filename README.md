@@ -295,6 +295,10 @@ Security reviewers should begin with the
 [`assurance case`](docs/SECURITY_ASSURANCE.md), and
 [`audit scope`](docs/AUDIT_SCOPE.md).
 
+## Contributing and releases
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the owner-reviewed contribution process and [VERSIONING.md](VERSIONING.md) for the shared SemVer and release policy. Public PRs and agent mentions do not start agents or workflows.
+
 ## License
 
 MIT (c) Tunet Ltd.
