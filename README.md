@@ -28,9 +28,22 @@ The default Django adapter carries SessionArmor's versioned
 package dependency. Missing, stale, malformed, future-dated, unbound, or
 subject-mismatched evidence denies; valid evidence never grants by itself.
 
-> **Status:** early alpha. Security controls and assurance evidence are being
-> developed rigorously, but the public API may evolve before 1.0. This package
-> has not received an independent audit or any government/NATO accreditation.
+## Version 1.0
+
+The documented authorization engine, request/decision types, built-in policies,
+ABAC policy format, extension protocols, explicit Django adapter, and
+`accessgate-mcp` entry point form the stable 1.x API. The core supports Python
+3.10–3.13 with no runtime dependencies. Install `[django]` for Django 4.2–6.x
+(`Django<7`), using a framework version still receiving upstream security updates.
+
+The `access_gate.policy.v1` format and SessionArmor assurance v1 bridge are
+unchanged. Upgrades from 0.3.0a2 keep the documented imports and behavior; earlier
+alpha users should review the ABAC and adapter corrections in the changelog.
+Future compatibility changes follow [VERSIONING.md](https://github.com/Tunet-xyz/access_gate/blob/main/VERSIONING.md).
+
+Version 1.0 defines API stability. The package has not received an independent
+security audit or government/NATO accreditation. The assurance documentation
+records the limits of mutation, fuzz, and deployment evidence.
 
 ## Design guarantees
 
@@ -171,9 +184,9 @@ engine = AuthorizationEngine([document_access], policy_set_id=policy_set_id)
 `dumps_signed_policy()` and `loads_signed_policy()` accept application-supplied
 signer/verifier protocols. AccessGate deliberately does not choose algorithms,
 store keys, or implement a trust store. See
-[`docs/POLICY_FORMAT.md`](docs/POLICY_FORMAT.md).
+[`docs/POLICY_FORMAT.md`](https://github.com/Tunet-xyz/access_gate/blob/main/docs/POLICY_FORMAT.md).
 
-See [`docs/abac.md`](docs/abac.md) for the full data model, operator semantics,
+See [`docs/abac.md`](https://github.com/Tunet-xyz/access_gate/blob/main/docs/abac.md) for the full data model, operator semantics,
 customization rules, JSON format, and rollout guidance.
 
 ## Application-defined policies
@@ -270,14 +283,16 @@ From a source checkout, run `python mcp/server.py`. The server exposes package
 capabilities, authorization-model guidance, the ABAC JSON Schema, exact built-in
 operator discovery, and read-only policy validation. It does not authenticate
 users, evaluate production identity data, or change application policy.
+It runs locally under the caller's control and provides no access to Tunet's
+maintainer agents, paid accounts, release credentials, or infrastructure.
 
 ## Project boundary
 
 AccessGate does not authenticate users, validate JWTs, secure sessions, query
 application permissions, or decide how tenants and resources are represented.
 Those are application and adapter responsibilities. See
-[`docs/architecture.md`](docs/architecture.md) and
-[`docs/customization.md`](docs/customization.md). AccessGate provides its own
+[`docs/architecture.md`](https://github.com/Tunet-xyz/access_gate/blob/main/docs/architecture.md) and
+[`docs/customization.md`](https://github.com/Tunet-xyz/access_gate/blob/main/docs/customization.md). AccessGate provides its own
 policy format but does not claim wire compatibility with XACML, Cedar, Rego, or
 other policy languages.
 
@@ -291,13 +306,13 @@ pytest --cov=access_gate --cov-report=term-missing
 ```
 
 Security reviewers should begin with the
-[`threat model`](docs/THREAT_MODEL.md),
-[`assurance case`](docs/SECURITY_ASSURANCE.md), and
-[`audit scope`](docs/AUDIT_SCOPE.md).
+[`threat model`](https://github.com/Tunet-xyz/access_gate/blob/main/docs/THREAT_MODEL.md),
+[`assurance case`](https://github.com/Tunet-xyz/access_gate/blob/main/docs/SECURITY_ASSURANCE.md), and
+[`audit scope`](https://github.com/Tunet-xyz/access_gate/blob/main/docs/AUDIT_SCOPE.md).
 
 ## Contributing and releases
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the owner-reviewed contribution process and [VERSIONING.md](VERSIONING.md) for the shared SemVer and release policy. Public PRs and agent mentions do not start agents or workflows.
+See [CONTRIBUTING.md](https://github.com/Tunet-xyz/access_gate/blob/main/CONTRIBUTING.md) for the owner-reviewed contribution process and [VERSIONING.md](https://github.com/Tunet-xyz/access_gate/blob/main/VERSIONING.md) for the shared SemVer and release policy. Public PRs and agent mentions do not start agents or workflows.
 
 ## License
 

@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-05
+
+### Changed
+
+- Stabilized the documented engine, policy, ABAC v1, immutable decision, extension
+  protocol, Django adapter, and local MCP APIs from 0.3.0a2.
+- Adopted the shared SemVer, owner-review, manual-workflow, and immutable-release
+  policy, with matching Claude and Codex instructions.
+- Aligned package, runtime, and MCP versions while preserving serialized schema
+  versions; bounded the Django extra below the next unsupported major release.
+- Declared packaged MIT license files and a PEP 639-capable build backend.
+- Made reproducible-build tooling work on Windows as well as POSIX hosts and
+  generated a cross-platform build dependency lock for Python 3.10+.
+
+### Security
+
+- Updated the pinned setuptools build tool to 84.2.1 to address
+  GHSA-xmj3-9gf7-h52w in the previous Windows build toolchain.
+
+### Documentation
+
+- Documented the stable public contract, alpha migration boundary, supported
+  integration ranges, local MCP access boundary, and assurance limitations.
+
 ## [0.3.0a2] - 2026-10-29
 
 ### Security

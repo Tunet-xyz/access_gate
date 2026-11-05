@@ -117,4 +117,4 @@ __all__ = [
     "policy_set_fingerprint",
 ]
 
-__version__ = "0.3.0a2"
+__version__ = "1.0.0"

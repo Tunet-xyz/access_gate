@@ -4,8 +4,8 @@
 
 | Version | Supported |
 | --- | --- |
-| 0.3.x alpha | Yes |
-| < 0.3 | No |
+| 1.0.x | Yes |
+| < 1.0 | No |
 
 ## Reporting a vulnerability
 
@@ -54,5 +54,6 @@ boundary unless the package claims to perform the affected operation.
 Security fixes are released from a reviewed commit through the trusted-publishing
 workflow. Consumers should pin and verify release artifacts, subscribe to
 security advisories, test authorization integration, and upgrade supported
-versions promptly. Alpha releases may contain incompatible API changes; a
-security fix may intentionally reject previously accepted ambiguous input.
+versions promptly. Stable API changes follow [VERSIONING.md](VERSIONING.md);
+security fixes may intentionally reject previously accepted ambiguous input,
+with compatibility and migration impact explained in the release notes.

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import os
 import re
 import subprocess
 import tarfile
@@ -90,7 +91,7 @@ def test_reproducible_build_pins_umask_and_releases_the_verified_build(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def fake_build(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        assert kwargs["umask"] == 0o022
+        assert kwargs["umask"] == (0o022 if os.name == "posix" else -1)
         output = Path(command[command.index("--outdir") + 1])
         output.mkdir(parents=True)
         (output / "accessgate-0-py3-none-any.whl").write_bytes(b"wheel")

@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 
 import access_gate.mcp.server as mcp_server
+from access_gate import __version__
 from access_gate.mcp.server import (
     call_tool,
     get_prompt,
@@ -335,7 +336,7 @@ def test_main_bounds_messages_and_continues_processing(
     responses = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert responses[0]["error"]["message"] == "Message exceeds the size limit"
     assert responses[1]["error"]["code"] == -32700
-    assert responses[2]["result"]["serverInfo"]["version"] == "0.3.0a2"
+    assert responses[2]["result"]["serverInfo"]["version"] == __version__
 
 
 @pytest.mark.parametrize(

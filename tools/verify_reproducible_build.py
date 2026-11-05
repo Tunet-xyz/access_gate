@@ -60,7 +60,7 @@ def verify_reproducible_build(root: Path, outdir: Path | None = None) -> dict[st
                 text=True,
                 # Wheel file modes follow the build process umask; pin it so the
                 # runner's or a developer's setting cannot change release bytes.
-                umask=0o022,
+                umask=0o022 if os.name == "posix" else -1,
             )
             for sdist in output.glob("*.tar.gz"):
                 normalize_sdist(sdist, int(environment["SOURCE_DATE_EPOCH"]))

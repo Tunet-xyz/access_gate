@@ -4,7 +4,7 @@
     "id": "access_gate",
     "name": "AccessGate",
     "packageName": "AccessGate",
-    "status": "alpha",
+    "status": "production",
     "license": "MIT",
     "purpose": "Composable, default-deny authorization for Python applications with RBAC, ABAC, and lightweight relationship-policy support.",
     "audiences": [
@@ -18,7 +18,7 @@
   "server": {
     "name": "access-gate-public-contract-mcp",
     "title": "AccessGate Public Agent Contract",
-    "version": "0.3.0a2",
+    "version": "1.0.0",
     "transport": "stdio",
     "required": true,
     "hostedEndpoint": "https://github.com/Tunet-xyz/access_gate/tree/main/mcp"

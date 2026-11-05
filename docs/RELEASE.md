@@ -1,5 +1,9 @@
 # Release procedure
 
+Apply the shared [versioning policy](../VERSIONING.md). Only the owner may
+start, rerun, or re-enable GitHub Actions. Agents run the equivalent checks
+locally and cannot approve a protected deployment on the owner's behalf.
+
 1. Select an immutable reviewed commit on protected `main`; confirm the
    manually dispatched test, security, assurance, CodeQL, fuzz, mutation, and
    Scorecard runs for that commit.
@@ -15,7 +19,9 @@
    and sdist to PyPI. Long-lived PyPI API tokens are not part of this process.
    The PyPI trusted publisher must name the `pypi` environment, and that
    environment must allow only `main` and `v*` tags; otherwise a workflow edited
-   on another branch can publish.
+   on another branch can publish. Require `bezu-1` to approve the deployment;
+   agents cannot provide that approval. Confirm the immutable `v<version>` tag
+   identifies the exact reviewed commit before the owner starts publishing.
 6. Verify the PyPI files against `SHA256SUMS` and verify their PyPI provenance
    with `pypi-attestations verify pypi --repository
    https://github.com/Tunet-xyz/access_gate pypi:<file name>`.
