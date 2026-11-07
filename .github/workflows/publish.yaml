@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   verify:
-    if: github.event_name == 'workflow_dispatch' && github.actor == 'bezu-1'
+    if: github.event_name == 'workflow_dispatch' && github.actor == 'bezu-1' && github.triggering_actor == 'bezu-1'
     name: Verify the release candidate
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -48,7 +48,7 @@ jobs:
           pytest
 
   build:
-    if: github.event_name == 'workflow_dispatch' && github.actor == 'bezu-1'
+    if: github.event_name == 'workflow_dispatch' && github.actor == 'bezu-1' && github.triggering_actor == 'bezu-1'
     name: Build and verify distributions
     needs: verify
     runs-on: ubuntu-latest
@@ -95,7 +95,7 @@ jobs:
           if-no-files-found: error
 
   release-assets:
-    if: github.event_name == 'workflow_dispatch' && github.actor == 'bezu-1'
+    if: github.event_name == 'workflow_dispatch' && github.actor == 'bezu-1' && github.triggering_actor == 'bezu-1'
     name: Retain release evidence
     needs: build
     runs-on: ubuntu-latest
@@ -118,7 +118,7 @@ jobs:
         run: gh release upload "$TAG" dist/packages/* dist/evidence/*
 
   pypi-publish:
-    if: github.event_name == 'workflow_dispatch' && github.actor == 'bezu-1'
+    if: github.event_name == 'workflow_dispatch' && github.actor == 'bezu-1' && github.triggering_actor == 'bezu-1'
     name: Upload release to PyPI
     needs: [build, release-assets]
     runs-on: ubuntu-latest
