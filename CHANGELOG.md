@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- README: the upgrade note names the two alphas published to PyPI, the Django
+  subject resolver's `id` fallback and the CI lint scope are documented, and the
+  MCP and contribution notes are written for outside readers.
+
 ## [1.0.0] - 2026-11-05
 
 ### Changed
@@ -31,7 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Documented the stable public contract, alpha migration boundary, supported
   integration ranges, local MCP access boundary, and assurance limitations.
 
-## [0.3.0a2] - 2026-10-29
+## [0.3.0a2] - 2026-10-29 (not published to PyPI; included in 1.0.0)
 
 ### Security
 
@@ -198,7 +204,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Package version advanced to `0.2.0a1`.
 
-## [0.1.0a1] - 2026-08-11
+## [0.1.0a1] - 2026-08-11 (not published to PyPI)
 
 ### Added
 

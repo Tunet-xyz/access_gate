@@ -12,7 +12,9 @@ It is complementary to authentication and session-security packages such as
 SessionArmor. Those establish who the caller is and whether the session can be
 trusted; AccessGate decides what that caller is allowed to do.
 
-For Django, the integration is explicit and deny-only:
+With SessionArmor, the integration is explicit and deny-only:
+`SessionAssurancePolicy` denies a request that lacks fresh, subject-bound session
+evidence and otherwise abstains, so another policy still makes the grant:
 
 ```python
 from access_gate import AuthorizationEngine, RolePolicy, SessionAssurancePolicy
@@ -37,8 +39,10 @@ ABAC policy format, extension protocols, explicit Django adapter, and
 (`Django<7`), using a framework version still receiving upstream security updates.
 
 The `access_gate.policy.v1` format and SessionArmor assurance v1 bridge are
-unchanged. Upgrades from 0.3.0a2 keep the documented imports and behavior; earlier
-alpha users should review the ABAC and adapter corrections in the changelog.
+unchanged. Two alphas reached PyPI before 1.0.0, 0.2.0a1 and 0.3.0a1 (0.3.0a2
+was prepared but never published). If you used either alpha, read the 0.3.0a2
+and 1.0.0 changelog entries first: ABAC comparisons and the Django adapter now
+deny some input the alphas accepted.
 Future compatibility changes follow [VERSIONING.md](https://github.com/Tunet-xyz/access_gate/blob/main/VERSIONING.md).
 
 Version 1.0 defines API stability. The package has not received an independent
@@ -232,7 +236,7 @@ def user_list(request):
     ...
 ```
 
-The default Django subject resolver only reads `pk`, `is_authenticated`,
+The default Django subject resolver only reads `pk` (falling back to `id`), `is_authenticated`,
 `access_gate_roles`, and `access_gate_attributes`. Real applications should
 normally provide a resolver that validates and maps their exact identity claims.
 With SessionArmor, the subject identifier must equal the evidence's subject
@@ -283,8 +287,8 @@ From a source checkout, run `python mcp/server.py`. The server exposes package
 capabilities, authorization-model guidance, the ABAC JSON Schema, exact built-in
 operator discovery, and read-only policy validation. It does not authenticate
 users, evaluate production identity data, or change application policy.
-It runs locally under the caller's control and provides no access to Tunet's
-maintainer agents, paid accounts, release credentials, or infrastructure.
+It runs locally under the caller's control, makes no network connections, and
+needs no credentials or account.
 
 ## Project boundary
 
@@ -300,9 +304,10 @@ other policy languages.
 
 ```bash
 python -m pip install -e ".[dev]"
-ruff check src tests
+ruff check src tests fuzz tools
 mypy src/access_gate
 pytest --cov=access_gate --cov-report=term-missing
+python -m tools.authorization_benchmark --enforce
 ```
 
 Security reviewers should begin with the
@@ -312,8 +317,8 @@ Security reviewers should begin with the
 
 ## Contributing and releases
 
-See [CONTRIBUTING.md](https://github.com/Tunet-xyz/access_gate/blob/main/CONTRIBUTING.md) for the owner-reviewed contribution process and [VERSIONING.md](https://github.com/Tunet-xyz/access_gate/blob/main/VERSIONING.md) for the shared SemVer and release policy. Public PRs and agent mentions cannot authorize maintainer work; repository jobs require owner dispatch. Vendor-hosted GitHub app access is controlled separately in the owner's account settings.
+See [CONTRIBUTING.md](https://github.com/Tunet-xyz/access_gate/blob/main/CONTRIBUTING.md) for the owner-reviewed contribution process and [VERSIONING.md](https://github.com/Tunet-xyz/access_gate/blob/main/VERSIONING.md) for the shared SemVer and release policy. Report vulnerabilities privately as described in [SECURITY.md](https://github.com/Tunet-xyz/access_gate/blob/main/SECURITY.md). CI workflows run only when the maintainer starts them, so include your local test results in pull requests.
 
 ## License
 
-MIT (c) Tunet Ltd.
+MIT (c) Tunet Ltd. See [LICENSE](https://github.com/Tunet-xyz/access_gate/blob/main/LICENSE).

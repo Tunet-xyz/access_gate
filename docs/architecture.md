@@ -9,7 +9,7 @@ AccessGate separates authorization into five replaceable parts:
 4. **The engine** applies failure behaviour and produces the final decision.
 5. **An audit sink** records that final decision.
 
-The core imports no web framework, ORM, token library, or Safety AZ code.
+The core imports no web framework, ORM, token library, or application code.
 Framework adapters depend inward on the core; the core never depends outward on
 an adapter.
 
