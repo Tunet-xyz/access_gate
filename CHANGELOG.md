@@ -7,11 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A Contributor Covenant 2.1 code of conduct, and issue templates for bug
+  reports and feature requests that send vulnerability reports to private
+  reporting.
+
 ### Changed
 
 - README: the upgrade note names the two alphas published to PyPI, the Django
   subject resolver's `id` fallback and the CI lint scope are documented, and the
   MCP and contribution notes are written for outside readers.
+- The security policy uses the layout shared by the Tunet libraries: private
+  reporting through the Security tab or by email, one set of response targets,
+  package scope, and secure-use guidance.
+- `VERSIONING.md` is worded for outside readers; its rules are unchanged.
 
 ## [1.0.0] - 2026-11-05
 
@@ -215,3 +225,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Built-in authentication, role, ownership, and tenant-boundary policies.
 - Optional Django view decorator adapter with replaceable resolvers and denial handler.
 - Test, security, and trusted-publishing workflows.
+
+[Unreleased]: https://github.com/Tunet-xyz/access_gate/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/Tunet-xyz/access_gate/releases/tag/v1.0.0
+[0.3.0a1]: https://pypi.org/project/AccessGate/0.3.0a1/
+[0.2.0a1]: https://pypi.org/project/AccessGate/0.2.0a1/
