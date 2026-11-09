@@ -173,9 +173,9 @@ engine = AuthorizationEngine([document_access], policy_set_id=policy_set_id)
 `dumps_signed_policy()` and `loads_signed_policy()` accept application-supplied
 signer/verifier protocols. AccessGate deliberately does not choose algorithms,
 store keys, or implement a trust store. See
-[`docs/POLICY_FORMAT.md`](https://github.com/Tunet-xyz/access_gate/blob/main/docs/POLICY_FORMAT.md).
+[policy format guide](https://github.com/Tunet-xyz/access_gate/blob/main/docs/POLICY_FORMAT.md).
 
-See [`docs/abac.md`](https://github.com/Tunet-xyz/access_gate/blob/main/docs/abac.md) for the full data model, operator semantics,
+See the [ABAC guide](https://github.com/Tunet-xyz/access_gate/blob/main/docs/abac.md) for the full data model, operator semantics,
 customization rules, JSON format, and rollout guidance.
 
 ## Application-defined policies
@@ -307,8 +307,8 @@ methods, tools, and limits.
 AccessGate does not authenticate users, validate JWTs, secure sessions, query
 application permissions, or decide how tenants and resources are represented.
 Those are application and adapter responsibilities. See
-[`docs/architecture.md`](https://github.com/Tunet-xyz/access_gate/blob/main/docs/architecture.md) and
-[`docs/customization.md`](https://github.com/Tunet-xyz/access_gate/blob/main/docs/customization.md). AccessGate provides its own
+the [architecture](https://github.com/Tunet-xyz/access_gate/blob/main/docs/architecture.md) and
+[customization](https://github.com/Tunet-xyz/access_gate/blob/main/docs/customization.md) guides. AccessGate provides its own
 policy format but does not claim wire compatibility with XACML, Cedar, Rego, or
 other policy languages.
 
@@ -352,7 +352,7 @@ evidence commands, including the dependency audit. Security reviewers should beg
 See [CONTRIBUTING.md](https://github.com/Tunet-xyz/access_gate/blob/main/CONTRIBUTING.md) for the owner-reviewed contribution
 process and [VERSIONING.md](https://github.com/Tunet-xyz/access_gate/blob/main/VERSIONING.md) for the shared SemVer and
 release policy. Report vulnerabilities privately as described in
-[SECURITY.md](https://github.com/Tunet-xyz/access_gate/blob/main/SECURITY.md). CI workflows run only when the maintainer
+[SECURITY.md](https://github.com/Tunet-xyz/access_gate/blob/main/SECURITY.md). CI workflows run only when the owner
 starts them, so include your local test results in pull requests. Everyone
 taking part follows the [code of conduct](https://github.com/Tunet-xyz/access_gate/blob/main/CODE_OF_CONDUCT.md).
 

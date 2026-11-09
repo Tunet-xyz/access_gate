@@ -6,7 +6,7 @@ packaged stdio MCP server. Agents can use it to read the
 documents, and get guidance for designing integrations and policies. The server
 runs locally under the caller's control, makes no network connections, and
 needs no credentials or account. There is no hosted AccessGate MCP service, and
-nothing here gives access to the maintainer's agents, accounts, or
+nothing here gives access to the owner's agents, accounts, or
 infrastructure.
 
 ## Run

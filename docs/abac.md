@@ -1,4 +1,4 @@
-# Attribute-Based Access Control
+# Attribute-based access control
 
 AccessGate ABAC evaluates a condition tree over four namespaces:
 
