@@ -26,7 +26,7 @@
   },
   "instructions": "Use AccessGate to design and validate authorization policies, not to authenticate callers or infer permissions from unverified data. Prefer synthetic examples, preserve exact action and attribute matching, and require review before production rollout.",
   "publicAccess": {
-    "mcpEndpoint": "dependency-free stdio server in the package and repository mcp/ directory",
+    "mcpEndpoint": "accessgate-mcp stdio server installed with the package; python mcp/server.py from a source checkout",
     "pythonPackage": "pip install AccessGate",
     "pythonApi": [
       "AuthorizationEngine",
@@ -36,17 +36,34 @@
       "OwnerPolicy",
       "OperatorRegistry"
     ],
+    "djangoAdapter": "pip install \"AccessGate[django]\"; from access_gate.adapters.django import DjangoAuthorizer",
     "cli": [
       "accessgate-mcp"
     ],
-    "docsUrl": "https://github.com/Tunet-xyz/access_gate#readme",
+    "docsUrl": "https://github.com/Tunet-xyz/access_gate/blob/main/docs/README.md",
     "pypiUrl": "https://pypi.org/project/AccessGate/",
     "repositoryUrl": "https://github.com/Tunet-xyz/access_gate",
     "supportedOperationModes": [
       "mcp-tools",
       "python-api",
+      "cli",
       "browser-docs"
-    ]
+    ],
+    "browserAutomation": {
+      "allowed": true,
+      "requiresAuthenticatedUserSession": false,
+      "preferredFor": [
+        "reading documentation",
+        "reviewing the policy schema",
+        "opening GitHub issues"
+      ],
+      "mustNotDependOn": [
+        "private source code",
+        "local repository paths",
+        "production identity or resource data",
+        "production policy changes without user approval"
+      ]
+    }
   },
   "resources": [
     {
