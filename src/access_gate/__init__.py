@@ -1,4 +1,5 @@
-"""AccessGate: composable, default-deny authorization for Python."""
+"""Composable, default-deny RBAC, ABAC, and relationship-aware authorization for
+Python applications."""
 
 from .abac import (
     POLICY_SCHEMA_VERSION,

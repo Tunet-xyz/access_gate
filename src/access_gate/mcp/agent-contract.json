@@ -6,7 +6,7 @@
     "packageName": "AccessGate",
     "status": "production",
     "license": "MIT",
-    "purpose": "Composable, default-deny authorization for Python applications with RBAC, ABAC, and lightweight relationship-policy support.",
+    "purpose": "Composable, default-deny RBAC, ABAC, and relationship-aware authorization for Python applications.",
     "audiences": [
       "python-developer",
       "security-engineer",

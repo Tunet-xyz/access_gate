@@ -12,7 +12,7 @@ access_gate = ["py.typed", "mcp/*.json", "schema/*.json"]
 [project]
 name = "AccessGate"
 version = "1.0.0"
-description = "Composable, default-deny authorization for Python applications."
+description = "Composable, default-deny RBAC, ABAC, and relationship-aware authorization for Python applications."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
