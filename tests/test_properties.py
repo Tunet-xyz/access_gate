@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -122,6 +123,51 @@ def test_collection_membership_matches_independent_reference(
     result = condition.evaluate(request, AttributePolicy(condition).operators)
 
     assert (result.state.value == "match") is exact_contains(values, member)
+
+
+NAN = math.nan
+COLLECTION_OPERATORS = (
+    "in",
+    "not_in",
+    "contains",
+    "not_contains",
+    "intersects",
+    "subset_of",
+    "superset_of",
+)
+
+
+@settings(max_examples=300, deadline=None)
+@given(
+    st.lists(st.integers(min_value=0, max_value=3), max_size=6).map(lambda xs: [*xs, NAN]),
+    st.integers(min_value=0, max_value=3),
+    st.sampled_from(COLLECTION_OPERATORS),
+    st.data(),
+)
+def test_a_nan_member_is_indeterminate_in_every_member_order(
+    values: list[object],
+    member: int,
+    operator: str,
+    data: st.DataObject,
+) -> None:
+    def state(collection: list[object]) -> str:
+        if operator in {"in", "not_in"}:
+            left, right = member, collection
+        elif operator in {"contains", "not_contains"}:
+            left, right = collection, member
+        else:
+            left, right = collection, [member]
+        condition = ContextAttribute("left").compare(operator, ContextAttribute("right"))
+        request = AuthorizationRequest(
+            Subject("subject-1"),
+            "compare",
+            context={"left": left, "right": right},
+        )
+        return condition.evaluate(request, AttributePolicy(condition).operators).state.value
+
+    reordered = data.draw(st.permutations(values))
+
+    assert state(values) == state(reordered) == "indeterminate"
 
 
 @settings(max_examples=150, deadline=None)

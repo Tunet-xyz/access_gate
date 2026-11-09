@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from cmath import isnan as _complex_isnan
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
@@ -107,6 +107,46 @@ def _reject_nan(value: object) -> None:
         # A Decimal NaN (DecimalField, Decimal("nan") from input) or a complex
         # NaN compares unequal to everything, just like a float NaN.
         raise ValueError("NaN is not a comparable authorization value.")
+
+
+# Exact scalar types that cannot be or hold a NaN; skipping them keeps the scan
+# below cheap for the usual collections of strings and integers.
+_NAN_FREE_SCALAR_TYPES = frozenset({str, int, bool, bytes, type(None)})
+
+
+def _reject_nested_nan(*members: Iterable[object]) -> None:
+    """Reject a NaN anywhere a built-in comparison could reach it.
+
+    Comparisons stop at the first decisive member, so a NaN met only while
+    scanning made the result depend on member order. Every member is checked
+    first instead, at every depth ``_equal`` descends into (sequences, sets,
+    mapping keys and values), so any NaN makes the comparison indeterminate.
+    """
+
+    pending: list[object] = []
+    for collection in members:
+        pending.extend(collection)
+    seen: set[int] = set()
+    while pending:
+        value = pending.pop()
+        if type(value) in _NAN_FREE_SCALAR_TYPES:
+            continue
+        if isinstance(value, tuple | list | frozenset | set | Mapping):
+            # Check each container once: values passed straight to a registry
+            # are not snapshotted and may share or even contain themselves.
+            if id(value) in seen:
+                continue
+            seen.add(id(value))
+            pending.extend(value)
+            if isinstance(value, Mapping):
+                pending.extend(value.values())
+        else:
+            _reject_nan(value)
+
+
+def _equals(left: object, right: object) -> bool:
+    _reject_nested_nan((left, right))
+    return _equal(left, right)
 
 
 def _equal(left: object, right: object, budget: _ComparisonBudget | None = None) -> bool:
@@ -268,6 +308,7 @@ def _same_members(
 
 def _contains(container: object, member: object) -> bool:
     values = _required_collection(container, operand="collection")
+    _reject_nested_nan(values, (member,))
     budget = _ComparisonBudget()
     return any(_equal(candidate, member, budget) for candidate in values)
 
@@ -275,6 +316,7 @@ def _contains(container: object, member: object) -> bool:
 def _intersects(left: object, right: object) -> bool:
     left_values = _required_collection(left, operand="left")
     right_values = _required_collection(right, operand="right")
+    _reject_nested_nan(left_values, right_values)
     budget = _ComparisonBudget()
     left_keys = _exact_key_set(left_values, budget)
     right_keys = _exact_key_set(right_values, budget)
@@ -287,6 +329,7 @@ def _intersects(left: object, right: object) -> bool:
 def _subset_of(left: object, right: object) -> bool:
     left_values = _required_collection(left, operand="left")
     right_values = _required_collection(right, operand="right")
+    _reject_nested_nan(left_values, right_values)
     budget = _ComparisonBudget()
     left_keys = _exact_key_set(left_values, budget)
     right_keys = _exact_key_set(right_values, budget)
@@ -316,8 +359,8 @@ def _ordered(left: object, right: object, operation: str) -> bool:
 
 def _builtins() -> dict[str, OperatorFunction]:
     return {
-        "eq": _equal,
-        "neq": lambda left, right: not _equal(left, right),
+        "eq": _equals,
+        "neq": lambda left, right: not _equals(left, right),
         "in": lambda left, right: _contains(right, left),
         "not_in": lambda left, right: not _contains(right, left),
         "contains": _contains,

@@ -29,6 +29,7 @@ from access_gate import (
     RolePolicy,
     Subject,
     SubjectAttribute,
+    abac,
     attribute_policy_from_dict,
     dumps_policy,
     load_policy_schema,
@@ -158,6 +159,158 @@ def test_nan_is_never_equal_or_unequal(nan: object) -> None:
         ContextAttribute("left").is_not_in([1, 2]),
     ):
         assert evaluate(condition, request) is ConditionState.INDETERMINATE
+
+
+_NAN = float("nan")
+
+
+def _place_nan(value: object, nan: object, *, reverse: bool) -> object:
+    if not isinstance(value, list):
+        return value
+    members = [nan if member == "NaN" else member for member in value]
+    return members[::-1] if reverse else members
+
+
+# In the listed order the decisive member comes before the NaN, which used to
+# decide the comparison before the NaN was reached; reversed, the NaN comes first.
+@pytest.mark.parametrize(
+    "nan", [_NAN, Decimal("NaN"), complex("nan")], ids=["float", "decimal", "complex"]
+)
+@pytest.mark.parametrize(
+    ("operator", "left", "right"),
+    [
+        ("in", 1, [1, "NaN"]),
+        ("not_in", 1, [1, "NaN"]),
+        ("contains", [1, "NaN"], 1),
+        ("not_contains", [1, "NaN"], 1),
+        ("intersects", [1, "NaN"], [1]),
+        ("intersects", [1], [1, "NaN"]),
+        ("subset_of", [1], [1, "NaN"]),
+        ("subset_of", [2, "NaN"], [1]),
+        ("superset_of", [1, "NaN"], [1]),
+        ("superset_of", [1], [2, "NaN"]),
+        ("eq", [2, "NaN"], [1, "NaN"]),
+        ("neq", [2, "NaN"], [1, "NaN"]),
+    ],
+)
+def test_a_nan_member_is_indeterminate_whatever_the_member_order(
+    operator: str,
+    left: object,
+    right: object,
+    nan: object,
+) -> None:
+    condition = ContextAttribute("left").compare(operator, ContextAttribute("right"))
+
+    def state(member: object, *, reverse: bool) -> ConditionState:
+        context = {
+            "left": _place_nan(left, member, reverse=reverse),
+            "right": _place_nan(right, member, reverse=reverse),
+        }
+        return evaluate(condition, abac_request(context=context))
+
+    # Without the NaN every case is decisive.
+    assert state(3, reverse=False) is not ConditionState.INDETERMINATE
+    assert state(nan, reverse=False) is ConditionState.INDETERMINATE
+    assert state(nan, reverse=True) is ConditionState.INDETERMINATE
+
+
+@pytest.mark.parametrize(
+    ("operator", "orders"),
+    [
+        pytest.param("in", [([1], [[1], [_NAN]]), ([1], [[_NAN], [1]])], id="in-list"),
+        pytest.param(
+            "in",
+            [
+                ({"level": 1}, [{"level": 1}, {"level": _NAN}]),
+                ({"level": 1}, [{"level": _NAN}, {"level": 1}]),
+            ],
+            id="in-mapping-value",
+        ),
+        pytest.param(
+            "not_in", [("a", ["a", {_NAN: "a"}]), ("a", [{_NAN: "a"}, "a"])], id="not_in-key"
+        ),
+        pytest.param(
+            "contains",
+            [
+                ([frozenset({1}), frozenset({_NAN})], frozenset({1})),
+                ([frozenset({_NAN}), frozenset({1})], frozenset({1})),
+            ],
+            id="contains-frozenset",
+        ),
+        pytest.param(
+            "intersects", [([(1,), (2, _NAN)], [(1,)]), ([(2, _NAN), (1,)], [(1,)])], id="tuple"
+        ),
+        pytest.param(
+            "subset_of", [([[1]], [[1], [[_NAN]]]), ([[1]], [[[_NAN]], [1]])], id="subset_of-deep"
+        ),
+        pytest.param(
+            "eq",
+            [
+                ({"a": [1], "b": [_NAN]}, {"a": [2], "b": [_NAN]}),
+                ({"b": [_NAN], "a": [1]}, {"b": [_NAN], "a": [2]}),
+            ],
+            id="eq-mapping-order",
+        ),
+    ],
+)
+def test_a_nested_nan_is_indeterminate_whatever_the_member_order(
+    operator: str,
+    orders: list[tuple[object, object]],
+) -> None:
+    condition = ContextAttribute("left").compare(operator, ContextAttribute("right"))
+
+    for left, right in orders:
+        request = abac_request(context={"left": left, "right": right})
+        assert evaluate(condition, request) is ConditionState.INDETERMINATE
+
+
+def test_membership_in_a_mapping_reaches_its_keys_only() -> None:
+    contains_tenant = ContextAttribute("scores").contains("tenant")
+
+    nan_value = abac_request(context={"scores": {"tenant": 1, "risk": _NAN}})
+    nan_key = abac_request(context={"scores": {"tenant": 1, _NAN: 1}})
+
+    assert evaluate(contains_tenant, nan_value) is ConditionState.MATCH
+    assert evaluate(contains_tenant, nan_key) is ConditionState.INDETERMINATE
+
+
+@pytest.mark.parametrize("groups", [["admins", _NAN], [_NAN, "admins"]])
+def test_a_nan_member_cannot_grant_in_either_order(groups: list[object]) -> None:
+    grant = AttributePolicy(SubjectAttribute("groups").contains("admins"), name="admins")
+    request = abac_request(subject_attributes={"groups": groups})
+
+    decision = AuthorizationEngine([grant]).decide(request)
+
+    assert not decision.allowed
+    assert decision.metadata["condition_state"] == "indeterminate"
+
+
+def test_operators_check_shared_and_cyclic_values_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    checked = 0
+    original = abac._reject_nan
+
+    def counting(value: object) -> None:
+        nonlocal checked
+        checked += 1
+        original(value)
+
+    monkeypatch.setattr(abac, "_reject_nan", counting)
+    registry = OperatorRegistry()
+    shared: list[object] = [1.5]
+    for _ in range(20):
+        shared = [shared, shared]
+
+    # Values passed straight to a registry are not snapshotted: a million paths
+    # lead to the one float here, and it is checked once.
+    assert registry.evaluate("contains", [shared], 2) is False
+    assert checked < 10
+
+    cyclic: list[object] = [2]
+    cyclic.append(cyclic)
+    assert registry.evaluate("in", 1, cyclic) is False
+    cyclic.append(_NAN)
+    with pytest.raises(ValueError, match="NaN"):
+        registry.evaluate("in", 1, cyclic)
 
 
 class _Role(str, Enum):
