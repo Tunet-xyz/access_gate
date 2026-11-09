@@ -59,9 +59,11 @@ Mutation results are review input, not passing evidence yet. `mutmut` 3 does
 not mutate decorated classes, so every `@dataclass` policy, ABAC condition node,
 request/decision type and `DjangoAuthorizer` is outside its scope; their
 behavior is pinned by targeted negative tests instead. For the remaining
-functions the run still reports surviving mutants, and
-`tools.check_mutation_results` fails while any survives (it has no list of
-reviewed survivors), so the mutation job fails until they are killed.
+functions the run still reports surviving mutants. `tools.check_mutation_results`
+fails on any mutant that is not killed unless `tools/reviewed-survivors.toml`
+records it with a matching status and diff digest and the reason it is
+acceptable. The list starts empty, so the job fails until every survivor is
+killed or reviewed, and a changed function or mutation needs a fresh review.
 
 ## Manual evidence still required
 

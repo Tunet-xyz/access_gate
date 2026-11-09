@@ -25,8 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Documentation has the layout shared by the Tunet libraries: a docs index, and
   the same sections in the release procedure, threat model, assurance case,
   audit scope, secure-development notes, and MCP README. The assurance case and
-  release procedure now say that the mutation job fails while mutants survive,
-  that a tag release needs an existing GitHub Release, and which outputs exist
+  release procedure now say how reviewed mutation survivors are recorded, that
+  a tag run creates a missing GitHub Release as a draft, and which outputs exist
   only in job logs. The ABAC guide states the NaN and literal-size limits
   precisely, and the Documentation URL points at the docs index.
 - README sections follow the order the Tunet libraries share: features, version
@@ -41,6 +41,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The policy format guide moved to `docs/policy-format.md`, matching the other
   kebab-case guide names, and the pull-request template was removed so the four
   Tunet libraries share the same files.
+- The mutation job passes reviewed survivors: `tools/reviewed-survivors.toml`
+  records each with its status, the SHA-256 of its diff, and the reason it is
+  acceptable; any other mutant that is not killed still fails the job.
+- A tag run of the publish workflow creates the GitHub Release as a draft when
+  none exists, instead of failing before the PyPI upload; a rerun keeps
+  matching evidence and stops on different evidence.
+
+### Security
+
+- Built-in comparisons are indeterminate when either operand contains a
+  `float`, `Decimal` or `complex` NaN anywhere they compare, whatever the member
+  order. Collection comparisons used to stop at the first decisive member, so
+  `in` with `1` matched `[1, nan]` but was indeterminate for `[nan, 1]`. With
+  the default `on_indeterminate` (deny) this only adds denials; a policy that
+  abstains on indeterminate results now abstains for such operands in every
+  order. Membership in a mapping still compares only its keys.
 
 ## [1.0.0] - 2026-11-05
 

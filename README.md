@@ -26,7 +26,7 @@ trusted; AccessGate decides what that caller is allowed to do.
 - **Exact matching:** built-in role, action, owner, and tenant comparisons never
   use substring matching.
 - **Safe ABAC:** missing attributes, two attributes that are both null, NaN
-  operands, non-numeric operands to ordered comparisons, non-collection operands
+  operands (also inside collections), non-numeric operands to ordered comparisons, non-collection operands
   to collection operators, and operator failures are indeterminate, cannot be
   negated into access, and deny by default. Equality and membership are
   type-aware, so a value of another type is a definite non-match that `neq`,

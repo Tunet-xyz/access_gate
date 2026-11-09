@@ -48,15 +48,18 @@ matches, otherwise indeterminate if any child is indeterminate.
 Strings are not treated as collections. Passing a string or scalar where a
 collection is required produces an indeterminate result rather than a substring
 match or a negated grant. Likewise a boolean, string, `None`, `Decimal` or
-date operand to an ordered comparison is indeterminate, and so is a NaN operand
-(`float`, `Decimal` or `complex`) to any built-in comparison. Register an
+date operand to an ordered comparison is indeterminate, and so is any built-in
+comparison involving a NaN (`float`, `Decimal` or `complex`), including a NaN
+anywhere inside a compared collection, whatever the member order. Membership
+(`in`, `not_in`, `contains`, `not_contains`) in a mapping compares only its
+keys, so a NaN among a mapping's values does not affect it. Register an
 explicitly named custom operator if a domain requires different semantics.
 
 Collection operands are limited to 10,000 items. Hashable values (strings,
 bytes, numbers, booleans, `None`, UUIDs, dates, enum members, and tuples and
 frozensets of them) are compared through exact, type-aware keys, including as
 set members and mapping keys. Comparisons involving unhashable values
-(mappings, lists, sets) or a NaN retain exact semantics but are capped at
+(mappings, lists, sets) retain exact semantics but are capped at
 100,000 candidate pairs per operator, nested comparisons included; exceeding the
 limit is indeterminate and therefore denies by default.
 

@@ -35,8 +35,11 @@ python -m tools.verify_reproducible_build
 ```
 
 The owner runs the manual test, security, assurance, fuzz, CodeQL, and
-Scorecard workflows on the release commit. The mutation job fails while any
-mutant survives; record the reviewed survivors as accepted residual risk.
+Scorecard workflows on the release commit. The mutation job fails on any
+mutant it does not kill unless `tools/reviewed-survivors.toml` records it with
+a matching status and diff digest and the reason it is acceptable. Add an
+entry only after reviewing the diff; `python -m tools.check_mutation_results
+--entry <name>` prints one.
 Record any check you could not run.
 
 ## 3. Build
@@ -62,8 +65,10 @@ artifacts, then validates the metadata and writes a validated SPDX SBOM and
    other ref, including a tag that does not match the package version. Dispatch
    from the tag for a release. The workflow verifies the source and builds the
    evidence above. On a tag run it attaches the wheel, sdist, SBOM, and
-   checksums to the GitHub Release, which must already exist or the upload
-   fails and blocks publication; a run from `main` attaches nothing.
+   checksums to the GitHub Release, creating it as a draft first if it does
+   not exist; review and publish that draft. A rerun from the same tag keeps
+   evidence that is already attached when it matches and stops when it
+   differs. A run from `main` attaches nothing.
 3. The upload job runs in the `pypi` environment, which only `main` and `v*`
    tags may use and which needs the owner's approval; administrators cannot
    bypass it, and agents cannot give that approval. PyPI Trusted Publishing
