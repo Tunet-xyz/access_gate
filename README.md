@@ -3,6 +3,8 @@
 Composable, default-deny RBAC, ABAC, and relationship-aware authorization for
 Python applications.
 
+Part of the [Tunet](https://www.tunet.xyz/engineering/) open-source libraries, alongside [GeoCanon](https://github.com/Tunet-xyz/geo_canon), [SessionArmor](https://github.com/Tunet-xyz/session_armor), and [SwapLayer](https://github.com/Tunet-xyz/swap_layer).
+
 AccessGate answers one question: **may this subject perform this action on
 this resource in this context?** It provides a small framework-neutral kernel,
 secure decision defaults, and extension interfaces for application-specific
