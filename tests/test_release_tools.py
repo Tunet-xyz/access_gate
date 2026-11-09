@@ -121,4 +121,5 @@ def test_security_policy_lists_the_current_release_line() -> None:
     security = (Path(__file__).resolve().parents[1] / "SECURITY.md").read_text()
     release_line = ".".join(access_gate.__version__.split(".")[:2])
 
-    assert re.search(rf"^\| {re.escape(release_line)}\.x .*\| :white_check_mark: \|$", security, re.M)
+    supported_row = rf"^\| {re.escape(release_line)}\.x .*\| :white_check_mark: \|$"
+    assert re.search(supported_row, security, re.M)
