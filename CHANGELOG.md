@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A Contributor Covenant 2.1 code of conduct, and issue templates for bug
   reports and feature requests that send vulnerability reports to private
   reporting.
+- `python -m access_gate.mcp` starts the MCP server, like the `accessgate-mcp`
+  command.
 
 ### Changed
 
@@ -47,6 +49,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A tag run of the publish workflow creates the GitHub Release as a draft when
   none exists, instead of failing before the PyPI upload; a rerun keeps
   matching evidence and stops on different evidence.
+- The agent contract names the installed `accessgate-mcp` stdio server (and
+  `python mcp/server.py` from a source checkout), adds the `cli` operation mode,
+  a `djangoAdapter` entry, and a `browserAutomation` block, and points
+  `docsUrl` at `docs/README.md`.
+- Package metadata declares the Django 4.2, 5.2, and 6.1 series and
+  `Typing :: Typed`, and its keywords add `django` and `mcp`; the sdist ships
+  `CODE_OF_CONDUCT.md`.
+- Workflow files end in `.yaml` (`codeql.yaml`, `scorecard.yaml`), checkouts
+  keep no credentials, and the Django 4.2 adapter tests run in a
+  `minimum-dependencies` job.
 
 ### Security
 

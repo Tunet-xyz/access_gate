@@ -15,6 +15,7 @@ After installing AccessGate:
 
 ```bash
 accessgate-mcp
+python -m access_gate.mcp     # the same server
 ```
 
 From a source checkout:

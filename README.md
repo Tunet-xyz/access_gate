@@ -294,7 +294,8 @@ AccessGate includes a local stdio MCP server:
 accessgate-mcp
 ```
 
-From a source checkout, run `python mcp/server.py`. The server exposes package
+`python -m access_gate.mcp` starts the same server. From a source checkout, run
+`python mcp/server.py`. The server exposes package
 capabilities, authorization-model guidance, the ABAC JSON Schema, exact built-in
 operator discovery, and read-only policy validation. It does not authenticate
 users, evaluate production identity data, or change application policy. It runs locally

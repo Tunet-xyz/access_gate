@@ -42,12 +42,12 @@ for the assessed commit.
 
 | Workflow | What it runs |
 | --- | --- |
-| `tests.yaml` | Ruff, mypy, and pytest with coverage on Python 3.10-3.13, the benchmark, and the Django adapter tests on Django 4.2 |
+| `tests.yaml` | Ruff, mypy, and pytest with coverage on Python 3.10–3.13, the benchmark, and the Django adapter tests on Django 4.2 in the `minimum-dependencies` job |
 | `security.yaml` | Bandit and a strict dependency audit |
 | `assurance.yaml` | Property, integrity, release, and benchmark suites, the reproducible-build check, and mutation testing |
 | `fuzz.yaml` | Native fuzzing of the policy-JSON and MCP-JSON parsers |
-| `codeql.yml` | CodeQL with the security-extended queries |
-| `scorecard.yml` | OpenSSF Scorecard |
+| `codeql.yaml` | CodeQL with the security-extended queries |
+| `scorecard.yaml` | OpenSSF Scorecard |
 | `publish.yaml` | Verification, a reproducible build with SBOM and checksums, and PyPI publication with PEP 740 attestations |
 
 Keep the workflow URLs and logs, commit SHA, runner image, dependency
