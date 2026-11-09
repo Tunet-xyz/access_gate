@@ -321,6 +321,25 @@ def test_source_checkout_stdio_server_smoke() -> None:
     assert responses[3]["result"]["structuredContent"]["valid"] is True
 
 
+def test_module_entry_point_serves_the_public_contract() -> None:
+    initialize = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
+
+    completed = subprocess.run(
+        [sys.executable, "-m", "access_gate.mcp"],
+        cwd=ROOT,
+        input=json.dumps(initialize) + "\n",
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=20,
+        env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
+    )
+    server_info = json.loads(completed.stdout)["result"]["serverInfo"]
+
+    assert server_info["name"] == "access-gate-public-contract-mcp"
+    assert server_info["version"] == __version__
+
+
 def test_main_bounds_messages_and_continues_processing(
     monkeypatch: pytest.MonkeyPatch,
     capsys: Any,
