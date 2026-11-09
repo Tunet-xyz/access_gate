@@ -40,28 +40,28 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-django = ["Django>=4.2,<7"]
+django = ["Django>=5.2.19,<7"]
 dev = [
-  "Django>=4.2,<7",
-  "bandit>=1.7",
-  "build>=1.2",
-  "django-stubs>=4.2",
-  "hypothesis>=6.112,<7",
-  "mypy>=1.10",
-  "pip-audit>=2.7",
-  "pytest>=8.0",
-  "pytest-cov>=5.0",
-  "ruff>=0.5",
+  "Django>=5.2.19,<7",
+  "bandit>=1.9.4",
+  "build>=1.6.1",
+  "django-stubs>=6.0.9",
+  "hypothesis>=6.168.5,<7",
+  "mypy>=2.4.1",
+  "pip-audit>=2.10.1",
+  "pytest>=9.2.0",
+  "pytest-cov>=7.1.0",
+  "ruff>=0.17.4",
   "setuptools>=77",
   "tomli>=2; python_version < '3.11'",
   "wheel",
 ]
 assurance = [
-  "hypothesis>=6.112,<7",
-  "mutmut==3.7.0",
-  "pytest>=8.0",
+  "hypothesis>=6.168.5,<7",
+  "mutmut==3.8.1",
+  "pytest>=9.2.0",
 ]
-fuzz = ["atheris==3.0.0"]
+fuzz = ["atheris==3.1.0"]
 
 [project.urls]
 Homepage = "https://github.com/Tunet-xyz/access_gate"
