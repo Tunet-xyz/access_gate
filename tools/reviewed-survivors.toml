@@ -1,0 +1,13 @@
+# Mutants that the mutation job does not kill and the owner reviewed as acceptable.
+#
+# tools/check_mutation_results.py fails the job on every mutant mutmut does not
+# report as killed, unless an entry below matches its name, status and diff.
+# Review the diff with `mutmut show <name>` first. Then print an entry with
+# `python -m tools.check_mutation_results --entry <name>` and write the reason,
+# such as why the mutant behaves exactly like the original code.
+#
+# [[survivor]]
+# mutant = "access_gate.abac.x_example__mutmut_1"
+# status = "survived"
+# diff_sha256 = "<the SHA-256 the --entry option prints>"
+# reason = "Equivalent mutant: <why no input can tell it from the original>"
