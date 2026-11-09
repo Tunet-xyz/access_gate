@@ -29,7 +29,7 @@ class _Assurance:
         return {"schema": "session-armor.assurance/v1", "status": "trusted"}
 
 
-def test_default_context_resolver_includes_sessionarmor_evidence() -> None:
+def test_default_context_resolver_includes_session_armor_evidence() -> None:
     request = SimpleNamespace(
         method="GET", path="/records", session_assurance=_Assurance()
     )
