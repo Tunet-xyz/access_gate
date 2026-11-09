@@ -17,12 +17,16 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
-keywords = ["authorization", "access-control", "rbac", "abac", "security", "policy"]
+keywords = ["abac", "access-control", "authorization", "django", "mcp", "policy", "rbac", "security"]
 authors = [
   { name = "Tunet Ltd", email = "alex@tunet.xyz" },
 ]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
+  "Framework :: Django",
+  "Framework :: Django :: 4.2",
+  "Framework :: Django :: 5.2",
+  "Framework :: Django :: 6.1",
   "Intended Audience :: Developers",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",
@@ -31,6 +35,7 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
   "Topic :: Security",
   "Topic :: Software Development :: Libraries :: Python Modules",
+  "Typing :: Typed",
 ]
 dependencies = []
 
