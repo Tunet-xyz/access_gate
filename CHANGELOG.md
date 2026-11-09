@@ -38,6 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   handler.
 - The README names the other Tunet libraries and links their snake_case
   repositories, calls the owner the owner, and uses descriptive link labels.
+- The policy format guide moved to `docs/policy-format.md`, matching the other
+  kebab-case guide names, and the pull-request template was removed so the four
+  Tunet libraries share the same files.
 
 ## [1.0.0] - 2026-11-05
 

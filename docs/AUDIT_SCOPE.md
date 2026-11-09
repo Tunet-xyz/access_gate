@@ -24,7 +24,7 @@ are not release evidence.
 ## Review entry points
 
 Start with `THREAT_MODEL.md`, `architecture.md`, `SECURITY_ASSURANCE.md`,
-`SECURE_DEVELOPMENT.md`, and `POLICY_FORMAT.md`; then trace all public exports,
+`SECURE_DEVELOPMENT.md`, and `policy-format.md`; then trace all public exports,
 decision creation, error paths, serialization boundaries, and release jobs.
 Treat examples as non-normative. Record tool versions and distinguish automated
 findings from manual design conclusions.

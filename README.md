@@ -173,7 +173,7 @@ engine = AuthorizationEngine([document_access], policy_set_id=policy_set_id)
 `dumps_signed_policy()` and `loads_signed_policy()` accept application-supplied
 signer/verifier protocols. AccessGate deliberately does not choose algorithms,
 store keys, or implement a trust store. See
-[policy format guide](https://github.com/Tunet-xyz/access_gate/blob/main/docs/POLICY_FORMAT.md).
+[policy format guide](https://github.com/Tunet-xyz/access_gate/blob/main/docs/policy-format.md).
 
 See the [ABAC guide](https://github.com/Tunet-xyz/access_gate/blob/main/docs/abac.md) for the full data model, operator semantics,
 customization rules, JSON format, and rollout guidance.
@@ -284,7 +284,7 @@ subject-mismatched evidence denies; valid evidence never grants by itself.
 
 By default the policy also requires continuity and claim binding in the
 evidence (`require_binding=True`, `require_claim_binding=True`). See
-SessionArmor's [AccessGate integration guide](https://github.com/Tunet-xyz/session_armor/blob/main/docs/ACCESSGATE_INTEGRATION.md).
+SessionArmor's [AccessGate integration guide](https://github.com/Tunet-xyz/session_armor/blob/main/docs/access-gate-integration.md).
 
 ## MCP server
 
@@ -320,7 +320,7 @@ records the limits of mutation, fuzz, and deployment evidence.
 
 - [Documentation index](https://github.com/Tunet-xyz/access_gate/blob/main/docs/README.md): guides, security
   documents, and the release procedure.
-- Guides: [architecture](https://github.com/Tunet-xyz/access_gate/blob/main/docs/architecture.md), [attribute-based access control](https://github.com/Tunet-xyz/access_gate/blob/main/docs/abac.md), [customization](https://github.com/Tunet-xyz/access_gate/blob/main/docs/customization.md), [policy format](https://github.com/Tunet-xyz/access_gate/blob/main/docs/POLICY_FORMAT.md), [MCP server](https://github.com/Tunet-xyz/access_gate/blob/main/mcp/README.md).
+- Guides: [architecture](https://github.com/Tunet-xyz/access_gate/blob/main/docs/architecture.md), [attribute-based access control](https://github.com/Tunet-xyz/access_gate/blob/main/docs/abac.md), [customization](https://github.com/Tunet-xyz/access_gate/blob/main/docs/customization.md), [policy format](https://github.com/Tunet-xyz/access_gate/blob/main/docs/policy-format.md), [MCP server](https://github.com/Tunet-xyz/access_gate/blob/main/mcp/README.md).
 - Security: [security policy](https://github.com/Tunet-xyz/access_gate/blob/main/SECURITY.md),
   [threat model](https://github.com/Tunet-xyz/access_gate/blob/main/docs/THREAT_MODEL.md),
   [security assurance](https://github.com/Tunet-xyz/access_gate/blob/main/docs/SECURITY_ASSURANCE.md),

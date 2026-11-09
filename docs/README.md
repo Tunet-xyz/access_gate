@@ -10,7 +10,7 @@ Django adapter. These documents go further.
 | [Architecture](architecture.md) | Evaluation sequence, domain vocabulary, and supported authorization models |
 | [Attribute-based access control](abac.md) | Condition outcomes, operators, grant and boundary policies, custom operators, and rollout |
 | [Customization](customization.md) | Identity and resource mapping, policies, decision strategies, audit sinks, and adapters |
-| [Policy format](POLICY_FORMAT.md) | The `access_gate.policy.v1` format, signed envelopes, and migration |
+| [Policy format](policy-format.md) | The `access_gate.policy.v1` format, signed envelopes, and migration |
 | [MCP server](../mcp/README.md) | The local stdio server: methods, tools, limits, and boundaries |
 
 ## Security
