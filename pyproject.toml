@@ -60,7 +60,7 @@ fuzz = ["atheris==3.0.0"]
 
 [project.urls]
 Homepage = "https://github.com/Tunet-xyz/access_gate"
-Documentation = "https://github.com/Tunet-xyz/access_gate#readme"
+Documentation = "https://github.com/Tunet-xyz/access_gate/blob/main/docs/README.md"
 Repository = "https://github.com/Tunet-xyz/access_gate"
 Issues = "https://github.com/Tunet-xyz/access_gate/issues"
 Changelog = "https://github.com/Tunet-xyz/access_gate/blob/main/CHANGELOG.md"

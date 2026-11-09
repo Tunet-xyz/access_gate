@@ -1,6 +1,9 @@
-# Secure development lifecycle
+# AccessGate secure development
 
-The project applies the intent of NIST SSDF to a small security library:
+AccessGate applies the intent of the NIST Secure Software Development Framework
+(SSDF) to a small security library.
+
+## Practices
 
 - **Prepare:** maintain the threat model, ownership boundaries, disclosure
   process, protected CI permissions, and documented release criteria.
@@ -14,14 +17,38 @@ The project applies the intent of NIST SSDF to a small security library:
   rotate affected trust, issue patched releases and advisories, and capture
   lessons in tests and the threat model.
 
-Every security-relevant change must identify affected assets/trust boundaries,
-include negative tests, and consider compatibility and policy migration. No
-generated or AI-assisted change is exempt from human review and the same checks.
-Do not weaken a bound, error mode, audit behavior, signature check, or release
-gate solely to preserve compatibility.
+## Security-sensitive changes
 
-Repository settings are not encoded by source files. Administrators must require
-review by at least one independent maintainer, dismissal of stale approvals,
-conversation resolution, signed commits or protected signed tags where policy
-requires them, passing required checks, restricted force-push/deletion, and
-approval for the `pypi` environment. Export those settings for each audit.
+Every security-relevant change must identify the affected assets and trust
+boundaries, include negative tests, and consider compatibility and migration.
+No generated or AI-assisted change is exempt from human review and the same
+checks. Do not weaken a bound, error mode, audit behavior, signature check, or
+release gate solely to preserve compatibility.
+
+Review these areas with particular care: decision strategies and error
+modes, ABAC operators, negation, and limits, serialized-policy parsing,
+policy fingerprints and signed envelopes, the Django adapter's resolvers and
+denial handling, and the MCP server's validation path.
+
+## Repository controls
+
+These GitHub settings were in place on 2026-11-09:
+
+- `main` accepts pushes only from the owner and rejects force pushes and
+  deletion. Other changes need a pull request approved by the code owner, with
+  stale approvals dismissed and conversations resolved.
+- Release tags (`v*`) can be created only by repository administrators, and no
+  one can move or delete them.
+- The `pypi` environment accepts only `main` and `v*` tags, requires the
+  owner's approval, and does not let administrators bypass it. PyPI uploads use
+  Trusted Publishing with short-lived OIDC credentials.
+- Every workflow is manual (`workflow_dispatch`) and runs only when the owner
+  starts it, with actions pinned to full commit SHAs and read-only default
+  permissions. Pull requests, issues, and comments cannot start a workflow.
+- Secret scanning with push protection, Dependabot alerts and security updates,
+  and private vulnerability reporting are on.
+
+Known gaps: the project has one maintainer, so no second person reviews the
+owner's changes, and the owner can push to `main` directly. No status checks
+are required, because CI runs only when the owner starts it, and commits are
+not required to be signed. Export these settings with each audit.

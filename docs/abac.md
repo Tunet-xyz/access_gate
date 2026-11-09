@@ -48,8 +48,8 @@ matches, otherwise indeterminate if any child is indeterminate.
 Strings are not treated as collections. Passing a string or scalar where a
 collection is required produces an indeterminate result rather than a substring
 match or a negated grant. Likewise a boolean, string, `None`, `Decimal` or
-date operand to an ordered comparison is indeterminate, and so is any built-in
-comparison involving a NaN (`float`, `Decimal` or `complex`). Register an
+date operand to an ordered comparison is indeterminate, and so is a NaN operand
+(`float`, `Decimal` or `complex`) to any built-in comparison. Register an
 explicitly named custom operator if a domain requires different semantics.
 
 Collection operands are limited to 10,000 items. Hashable values (strings,
@@ -130,7 +130,7 @@ The JSON Schema is packaged at `schema/abac-policy-v1.json` and available from
 `load_policy_schema()` and the AccessGate MCP server.
 
 Policy JSON is limited to 1,000,000 characters, 64 nested condition or literal
-levels, 4,096 condition nodes/actions, and 100,000 literal nodes. Deployments
+levels, 4,096 condition nodes/actions, and 100,000 nodes in each literal value. Deployments
 should apply a smaller transport limit when their policy domain permits it.
 
 Custom operators remain code and are not embedded in a policy document. A host

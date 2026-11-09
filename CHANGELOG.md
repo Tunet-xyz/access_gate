@@ -22,6 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reporting through the Security tab or by email, one set of response targets,
   package scope, and secure-use guidance.
 - `VERSIONING.md` is worded for outside readers; its rules are unchanged.
+- Documentation has the layout shared by the Tunet libraries: a docs index, and
+  the same sections in the release procedure, threat model, assurance case,
+  audit scope, secure-development notes, and MCP README. The assurance case and
+  release procedure now say that the mutation job fails while mutants survive,
+  that a tag release needs an existing GitHub Release, and which outputs exist
+  only in job logs. The ABAC guide states the NaN and literal-size limits
+  precisely, and the Documentation URL points at the docs index.
 
 ## [1.0.0] - 2026-11-05
 

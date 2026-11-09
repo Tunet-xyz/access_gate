@@ -1,8 +1,10 @@
-# Security assurance case
+# AccessGate security assurance case
 
-This document links security claims to repository evidence. Passing evidence
-increases confidence; it does not constitute NATO, government, regulatory, or
-independent security certification.
+This document links AccessGate's security claims to repository evidence.
+Passing evidence increases confidence; it is not an independent audit or a
+NATO, government, or regulatory certification.
+
+## Claims and evidence
 
 | Claim | Implementation | Automated evidence |
 | --- | --- | --- |
@@ -32,18 +34,34 @@ python -m tools.authorization_benchmark --enforce
 python -m tools.verify_reproducible_build
 ```
 
-Manually dispatched workflows additionally run native fuzz targets, mutation
-testing, CodeQL, and OpenSSF Scorecard; nothing runs on a schedule, so record
-which of them ran for the assessed commit. Preserve workflow URLs, logs, commit
-SHA, runner image, dependency resolution, benchmark JSON, mutation results,
-release checksums, SBOM, and PyPI provenance as the assessment evidence bundle.
+## Workflow evidence
+
+The GitHub workflows are manual: only the owner starts them, and none runs on
+a schedule (Dependabot checks dependencies weekly). Record which of them ran
+for the assessed commit.
+
+| Workflow | What it runs |
+| --- | --- |
+| `tests.yaml` | Ruff, mypy, and pytest with coverage on Python 3.10-3.13, the benchmark, and the Django adapter tests on Django 4.2 |
+| `security.yaml` | Bandit and a strict dependency audit |
+| `assurance.yaml` | Property, integrity, release, and benchmark suites, the reproducible-build check, and mutation testing |
+| `fuzz.yaml` | Native fuzzing of the policy-JSON and MCP-JSON parsers |
+| `codeql.yml` | CodeQL with the security-extended queries |
+| `scorecard.yml` | OpenSSF Scorecard |
+| `publish.yaml` | Verification, a reproducible build with SBOM and checksums, and PyPI publication with PEP 740 attestations |
+
+Keep the workflow URLs and logs, commit SHA, runner image, dependency
+resolution, release checksums, SBOM, and PyPI provenance as the evidence
+bundle. The benchmark and mutation results appear only in the job logs, so
+save them from there.
 
 Mutation results are review input, not passing evidence yet. `mutmut` 3 does
 not mutate decorated classes, so every `@dataclass` policy, ABAC condition node,
 request/decision type and `DjangoAuthorizer` is outside its scope; their
 behavior is pinned by targeted negative tests instead. For the remaining
-functions the run still reports untriaged surviving mutants, so
-`tools.check_mutation_results` fails until they are killed or reviewed.
+functions the run still reports surviving mutants, and
+`tools.check_mutation_results` fails while any survives (it has no list of
+reviewed survivors), so the mutation job fails until they are killed.
 
 ## Manual evidence still required
 

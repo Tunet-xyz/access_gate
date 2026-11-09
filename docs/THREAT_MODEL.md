@@ -1,4 +1,4 @@
-# Threat model
+# AccessGate threat model
 
 This threat model covers the framework-neutral AccessGate package at a specific
 source revision. It is not a system accreditation and must be combined with the
@@ -24,7 +24,7 @@ extension failures, abstention, and ambiguous results must not create access.
 - Serialized and MCP policy input is untrusted. Signed-policy trust is supplied
   by the caller's verifier and external key store.
 
-## Adversaries and abuse cases
+## Threats and controls
 
 | Threat | Package control | Residual responsibility |
 | --- | --- | --- |
@@ -48,13 +48,27 @@ extension failures, abstention, and ambiguous results must not create access.
 6. A release is not published unless tests, reproducibility, metadata checks,
    provenance generation, and the protected PyPI environment succeed.
 
-## Explicitly out of scope
+## Out of scope
 
 Authentication, cryptographic algorithm selection, private-key custody, token
 validation, revocation services, distributed policy synchronization, database
 row filtering, network security, and deployment accreditation are not provided.
 AccessGate deliberately accepts signer/verifier protocols instead of embedding
 a key-management or cryptography policy.
+
+## Residual risks
+
+- AccessGate has not had an independent security audit, and mutation testing
+  still reports surviving mutants ([security assurance](SECURITY_ASSURANCE.md)).
+- Custom policies, operators, strategies, resolvers, signers, verifiers, and
+  audit sinks run as trusted code. AccessGate validates what they return, but a
+  faulty extension, or a permissive error mode chosen for one, can still grant
+  access.
+- A signed policy envelope shows which policy was signed, not that it is the
+  current one. Rollback prevention, key custody, and distribution belong to the
+  deployment.
+- Resource bounds limit, but do not remove, the cost of hostile input.
+  Transport limits, process limits, and rate limiting remain the host's job.
 
 ## Review triggers
 

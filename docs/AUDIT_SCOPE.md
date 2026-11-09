@@ -1,4 +1,4 @@
-# Audit scope
+# AccessGate audit scope
 
 An assessment must name an immutable Git commit and the exact wheel and sdist
 SHA-256 digests. Findings against a moving branch or an unverified local build
