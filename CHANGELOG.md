@@ -29,6 +29,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that a tag release needs an existing GitHub Release, and which outputs exist
   only in job logs. The ABAC guide states the NaN and literal-size limits
   precisely, and the Documentation URL points at the docs index.
+- README sections follow the order the Tunet libraries share: features, version
+  status, installation, quick start, usage, MCP server, scope and limitations,
+  documentation, development, contributing, and license, with PyPI, Python, and
+  license badges. SessionArmor integration has its own section; the README
+  names `on_miss` (`RolePolicy`, `OwnerPolicy`) and `on_no_match`
+  (`AttributePolicy`) correctly, and the Django adapter's awaitable denial
+  handler.
 
 ## [1.0.0] - 2026-11-05
 

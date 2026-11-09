@@ -1,7 +1,11 @@
 # AccessGate
 
-Composable, default-deny RBAC, ABAC, and relationship-aware authorization for
-Python applications.
+[![PyPI](https://img.shields.io/pypi/v/AccessGate)](https://pypi.org/project/AccessGate/)
+[![Python 3.10–3.13](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue)](https://pypi.org/project/AccessGate/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/Tunet-xyz/access_gate/blob/main/LICENSE)
+
+**Composable, default-deny RBAC, ABAC, and relationship-aware authorization for
+Python applications.**
 
 Part of the [Tunet](https://www.tunet.xyz/engineering/) open-source libraries, alongside [GeoCanon](https://github.com/Tunet-xyz/geo_canon), [SessionArmor](https://github.com/Tunet-xyz/session_armor), and [SwapLayer](https://github.com/Tunet-xyz/swap_layer).
 
@@ -14,44 +18,7 @@ It is complementary to authentication and session-security packages such as
 SessionArmor. Those establish who the caller is and whether the session can be
 trusted; AccessGate decides what that caller is allowed to do.
 
-With SessionArmor, the integration is explicit and deny-only:
-`SessionAssurancePolicy` denies a request that lacks fresh, subject-bound session
-evidence and otherwise abstains, so another policy still makes the grant:
-
-```python
-from access_gate import AuthorizationEngine, RolePolicy, SessionAssurancePolicy
-
-engine = AuthorizationEngine([
-    SessionAssurancePolicy(actions={"records.read"}),
-    RolePolicy({"records_reader"}, actions={"records.read"}),
-])
-```
-
-The default Django adapter carries SessionArmor's versioned
-`request.session_assurance` evidence into authorization context without a hard
-package dependency. Missing, stale, malformed, future-dated, unbound, or
-subject-mismatched evidence denies; valid evidence never grants by itself.
-
-## Version 1.0
-
-The documented authorization engine, request/decision types, built-in policies,
-ABAC policy format, extension protocols, explicit Django adapter, and
-`accessgate-mcp` entry point form the stable 1.x API. The core supports Python
-3.10–3.13 with no runtime dependencies. Install `[django]` for Django 4.2–6.x
-(`Django<7`), using a framework version still receiving upstream security updates.
-
-The `access_gate.policy.v1` format and SessionArmor assurance v1 bridge are
-unchanged. Two alphas reached PyPI before 1.0.0, 0.2.0a1 and 0.3.0a1 (0.3.0a2
-was prepared but never published). If you used either alpha, read the 0.3.0a2
-and 1.0.0 changelog entries first: ABAC comparisons and the Django adapter now
-deny some input the alphas accepted.
-Future compatibility changes follow [VERSIONING.md](https://github.com/Tunet-xyz/access_gate/blob/main/VERSIONING.md).
-
-Version 1.0 defines API stability. The package has not received an independent
-security audit or government/NATO accreditation. The assurance documentation
-records the limits of mutation, fuzz, and deployment evidence.
-
-## Design guarantees
+## Features
 
 - **Default deny:** abstention never grants access.
 - **Deny overrides:** any explicit denial wins over grants by default.
@@ -80,6 +47,22 @@ records the limits of mutation, fuzz, and deployment evidence.
 
 `Subject`, `Resource`, `AuthorizationRequest`, and `Decision` expose `to_dict()`
 for JSON-friendly snapshots of their otherwise immutable data.
+
+## Version 1.0
+
+The documented authorization engine, request/decision types, built-in policies,
+ABAC policy format, extension protocols, explicit Django adapter, and
+`accessgate-mcp` entry point form the stable 1.x API. The core supports Python
+3.10–3.13 with no runtime dependencies. Install `[django]` for Django 4.2–6.x
+(`Django<7`), using a framework version still receiving upstream security updates.
+
+AccessGate 1.0.0 is published on [PyPI](https://pypi.org/project/AccessGate/).
+The `access_gate.policy.v1` format and SessionArmor assurance v1 bridge are
+unchanged. Two alphas reached PyPI before 1.0.0, 0.2.0a1 and 0.3.0a1 (0.3.0a2
+was prepared but never published). If you used either alpha, read the 0.3.0a2
+and 1.0.0 changelog entries first: ABAC comparisons and the Django adapter now
+deny some input the alphas accepted.
+Future compatibility changes follow [VERSIONING.md](https://github.com/Tunet-xyz/access_gate/blob/main/VERSIONING.md).
 
 ## Installation
 
@@ -219,8 +202,9 @@ directly through its `actions` argument. Use `decide_many()` for ordered batch
 evaluation; every request still receives its own decision and audit event.
 
 For mixed RBAC/ABAC grants, configure alternative grant policies to abstain on
-a miss (`on_no_match`) and, unless missing facts should veto every other grant,
-on an indeterminate result (`on_indeterminate`). Explicit boundary denials still
+a miss (`on_miss` for `RolePolicy` and `OwnerPolicy`, `on_no_match` for
+`AttributePolicy`) and, unless missing facts should veto every other grant, on
+an indeterminate `AttributePolicy` result (`on_indeterminate`). Explicit boundary denials still
 override every grant.
 
 ## Django adapter
@@ -248,7 +232,8 @@ model with `sub`, resolve the subject from `sub` (or align SessionArmor's
 `subject_mismatch`.
 The adapter also accepts custom context and action-attribute resolvers for ABAC.
 Synchronous and asynchronous Django views are supported. Async views may use
-awaitable subject, resource, context, action-attribute, and denial resolvers.
+awaitable subject, resource, context, and action-attribute resolvers and an
+awaitable denial handler.
 In an async view the default subject resolver and the engine (every policy and
 the audit sink) run in a worker thread through `sync_to_async`, so ORM-backed
 policies and sinks work; pass `async_engine_in_thread=False` to keep a
@@ -277,9 +262,33 @@ still propagate. Outside the adapter,
 `AuthorizationEngine.record_denial(request, decision)` sends a denial reached
 without policy evaluation through the same audit path.
 
+## SessionArmor integration
+
+With SessionArmor, the integration is explicit and deny-only:
+`SessionAssurancePolicy` denies a request that lacks fresh, subject-bound session
+evidence and otherwise abstains, so another policy still makes the grant:
+
+```python
+from access_gate import AuthorizationEngine, RolePolicy, SessionAssurancePolicy
+
+engine = AuthorizationEngine([
+    SessionAssurancePolicy(actions={"records.read"}),
+    RolePolicy({"records_reader"}, actions={"records.read"}),
+])
+```
+
+The default Django adapter carries SessionArmor's versioned
+`request.session_assurance` evidence into authorization context without a hard
+package dependency. Missing, stale, malformed, future-dated, unbound, or
+subject-mismatched evidence denies; valid evidence never grants by itself.
+
+By default the policy also requires continuity and claim binding in the
+evidence (`require_binding=True`, `require_claim_binding=True`). See
+SessionArmor's [AccessGate integration guide](https://github.com/Tunet-xyz/session_armor/blob/main/docs/ACCESSGATE_INTEGRATION.md).
+
 ## MCP server
 
-AccessGate includes a dependency-free stdio MCP server:
+AccessGate includes a local stdio MCP server:
 
 ```bash
 accessgate-mcp
@@ -288,11 +297,12 @@ accessgate-mcp
 From a source checkout, run `python mcp/server.py`. The server exposes package
 capabilities, authorization-model guidance, the ABAC JSON Schema, exact built-in
 operator discovery, and read-only policy validation. It does not authenticate
-users, evaluate production identity data, or change application policy.
-It runs locally under the caller's control, makes no network connections, and
-needs no credentials or account.
+users, evaluate production identity data, or change application policy. It runs locally
+under the caller's control, makes no network connections, and needs no
+credentials or account. See [mcp/README.md](https://github.com/Tunet-xyz/access_gate/blob/main/mcp/README.md) for its
+methods, tools, and limits.
 
-## Project boundary
+## Scope and limitations
 
 AccessGate does not authenticate users, validate JWTs, secure sessions, query
 application permissions, or decide how tenants and resources are represented.
@@ -302,25 +312,50 @@ Those are application and adapter responsibilities. See
 policy format but does not claim wire compatibility with XACML, Cedar, Rego, or
 other policy languages.
 
+Version 1.0 defines API stability. The package has not received an independent
+security audit or government/NATO accreditation. The [security assurance case](https://github.com/Tunet-xyz/access_gate/blob/main/docs/SECURITY_ASSURANCE.md)
+records the limits of mutation, fuzz, and deployment evidence.
+
+## Documentation
+
+- [Documentation index](https://github.com/Tunet-xyz/access_gate/blob/main/docs/README.md): guides, security
+  documents, and the release procedure.
+- Guides: [architecture](https://github.com/Tunet-xyz/access_gate/blob/main/docs/architecture.md), [attribute-based access control](https://github.com/Tunet-xyz/access_gate/blob/main/docs/abac.md), [customization](https://github.com/Tunet-xyz/access_gate/blob/main/docs/customization.md), [policy format](https://github.com/Tunet-xyz/access_gate/blob/main/docs/POLICY_FORMAT.md), [MCP server](https://github.com/Tunet-xyz/access_gate/blob/main/mcp/README.md).
+- Security: [security policy](https://github.com/Tunet-xyz/access_gate/blob/main/SECURITY.md),
+  [threat model](https://github.com/Tunet-xyz/access_gate/blob/main/docs/THREAT_MODEL.md),
+  [security assurance](https://github.com/Tunet-xyz/access_gate/blob/main/docs/SECURITY_ASSURANCE.md),
+  [audit scope](https://github.com/Tunet-xyz/access_gate/blob/main/docs/AUDIT_SCOPE.md), and
+  [secure development](https://github.com/Tunet-xyz/access_gate/blob/main/docs/SECURE_DEVELOPMENT.md).
+- [Changelog](https://github.com/Tunet-xyz/access_gate/blob/main/CHANGELOG.md), including which versions reached PyPI.
+
 ## Development
 
 ```bash
+git clone https://github.com/Tunet-xyz/access_gate.git
+cd access_gate
 python -m pip install -e ".[dev]"
-ruff check src tests fuzz tools
-mypy src/access_gate
-pytest --cov=access_gate --cov-report=term-missing
+python -m ruff check src tests fuzz tools
+python -m mypy src/access_gate
+python -m bandit -r src/access_gate
+python -m pytest --cov=access_gate --cov-report=term-missing
 python -m tools.authorization_benchmark --enforce
 ```
 
-Security reviewers should begin with the
-[`threat model`](https://github.com/Tunet-xyz/access_gate/blob/main/docs/THREAT_MODEL.md),
-[`assurance case`](https://github.com/Tunet-xyz/access_gate/blob/main/docs/SECURITY_ASSURANCE.md), and
-[`audit scope`](https://github.com/Tunet-xyz/access_gate/blob/main/docs/AUDIT_SCOPE.md).
+These are the checks the manual CI workflows run. The
+[security assurance case](https://github.com/Tunet-xyz/access_gate/blob/main/docs/SECURITY_ASSURANCE.md) lists the full
+evidence commands, including the dependency audit. Security reviewers should begin with the
+[threat model](https://github.com/Tunet-xyz/access_gate/blob/main/docs/THREAT_MODEL.md) and the
+[audit scope](https://github.com/Tunet-xyz/access_gate/blob/main/docs/AUDIT_SCOPE.md).
 
 ## Contributing and releases
 
-See [CONTRIBUTING.md](https://github.com/Tunet-xyz/access_gate/blob/main/CONTRIBUTING.md) for the owner-reviewed contribution process and [VERSIONING.md](https://github.com/Tunet-xyz/access_gate/blob/main/VERSIONING.md) for the shared SemVer and release policy. Report vulnerabilities privately as described in [SECURITY.md](https://github.com/Tunet-xyz/access_gate/blob/main/SECURITY.md). CI workflows run only when the maintainer starts them, so include your local test results in pull requests.
+See [CONTRIBUTING.md](https://github.com/Tunet-xyz/access_gate/blob/main/CONTRIBUTING.md) for the owner-reviewed contribution
+process and [VERSIONING.md](https://github.com/Tunet-xyz/access_gate/blob/main/VERSIONING.md) for the shared SemVer and
+release policy. Report vulnerabilities privately as described in
+[SECURITY.md](https://github.com/Tunet-xyz/access_gate/blob/main/SECURITY.md). CI workflows run only when the maintainer
+starts them, so include your local test results in pull requests. Everyone
+taking part follows the [code of conduct](https://github.com/Tunet-xyz/access_gate/blob/main/CODE_OF_CONDUCT.md).
 
 ## License
 
-MIT (c) Tunet Ltd. See [LICENSE](https://github.com/Tunet-xyz/access_gate/blob/main/LICENSE).
+MIT. Copyright (c) 2026 Tunet Ltd. See [LICENSE](https://github.com/Tunet-xyz/access_gate/blob/main/LICENSE).
