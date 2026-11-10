@@ -51,6 +51,10 @@ python -m build --no-isolation
 python -m twine check dist/*
 ```
 
+`requirements/build.txt` is the hash-locked output of the `uv pip compile`
+command in its header. Dependabot leaves it and `requirements/build.in` alone,
+so to update the release tools, edit `build.in` and run that command again.
+
 The publish workflow repeats this with `python -m
 tools.verify_reproducible_build`, which builds twice and rejects differing
 artifacts, then validates the metadata and writes a validated SPDX SBOM and
