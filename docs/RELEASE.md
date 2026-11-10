@@ -51,14 +51,19 @@ python -m build --no-isolation
 python -m twine check dist/*
 ```
 
-`requirements/build.txt` is the hash-locked output of the `uv pip compile`
-command in its header. Dependabot leaves it and `requirements/build.in` alone,
-so to update the release tools, edit `build.in` and run that command again.
-
 The publish workflow repeats this with `python -m
 tools.verify_reproducible_build`, which builds twice and rejects differing
 artifacts, then validates the metadata and writes a validated SPDX SBOM and
 `SHA256SUMS`. Smoke-test the exact wheel in a clean environment.
+
+`requirements/build.txt` is the hash-locked output of the `uv pip compile`
+command in its header. Dependabot version updates leave it and
+`requirements/build.in` alone, so update a release tool by editing `build.in`
+and running that command again (add `--upgrade-package <name>` to refresh a
+pinned dependency), then audit it with `pip-audit -r requirements/build.txt`.
+If a Dependabot security update changes either file, redo it that way instead
+of merging it, because Dependabot rebuilds the lock without its platform
+markers.
 
 ## 4. Publish
 
