@@ -48,7 +48,7 @@ Record any check you could not run.
 python -m pip install --require-hashes -r requirements/build.txt
 export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
 python -m build --no-isolation
-python -m twine check dist/*
+python -m twine check --strict dist/*
 ```
 
 The publish workflow repeats this with `python -m
