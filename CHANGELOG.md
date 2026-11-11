@@ -53,6 +53,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `python mcp/server.py` from a source checkout), adds the `cli` operation mode,
   a `djangoAdapter` entry, and a `browserAutomation` block, and points
   `docsUrl` at `docs/README.md`.
+- In the MCP server, `prompts/get` fills a template in one pass and rejects
+  undeclared, missing, or non-string arguments; `tools/call` checks each tool's
+  required arguments, types, and allowed values, so `validate_policy_document`
+  answers a missing `policy`, or one that is neither an object nor a string,
+  with a JSON-RPC error instead of a `valid: false` result; the guidance tools'
+  descriptions say they return contract guidance, and their replies say they
+  do not run AccessGate, draft a policy, or generate code; JSON-RPC error
+  details are cut to 200 characters.
 - Package metadata declares the Django 4.2, 5.2, and 6.1 series and
   `Typing :: Typed`, and its keywords add `django` and `mcp`; the sdist ships
   `CODE_OF_CONDUCT.md`.

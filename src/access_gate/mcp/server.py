@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import math
+import re
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -22,6 +23,16 @@ PROTOCOL_VERSION = "2025-06-18"
 CONTRACT_PATH = Path(__file__).with_name("agent-contract.json")
 MAX_MESSAGE_CHARS = 1_100_000
 MAX_JSON_NUMBER_CHARS = 256
+MAX_ERROR_DETAIL_CHARS = 200
+PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+JSON_TYPES: dict[str, tuple[type, ...]] = {
+    "string": (str,),
+    "array": (list,),
+    "object": (dict,),
+    "boolean": (bool,),
+    "integer": (int,),
+    "number": (int, float),
+}
 
 
 def _reject_json_constant(value: str) -> None:
@@ -176,6 +187,75 @@ def list_tools(contract: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _shorten(value: object) -> str:
+    text = str(value)
+    if len(text) > MAX_ERROR_DETAIL_CHARS:
+        return text[:MAX_ERROR_DETAIL_CHARS] + "..."
+    return text
+
+
+def _matches_schema(value: Any, schema: Mapping[str, Any], where: str) -> bool:
+    try:
+        _check_value(value, schema, where)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def _check_value(value: Any, schema: Mapping[str, Any], where: str) -> None:
+    """Check *value* against the JSON Schema keywords the contract uses."""
+
+    expected = schema.get("type")
+    if expected in JSON_TYPES:
+        is_bool = isinstance(value, bool)
+        if not isinstance(value, JSON_TYPES[expected]) or (is_bool and expected != "boolean"):
+            raise TypeError(f"{where} must be of type {expected}")
+    if "enum" in schema and value not in schema["enum"]:
+        raise ValueError(f"{where} must be one of {', '.join(map(str, schema['enum']))}")
+    if expected == "array" and isinstance(schema.get("items"), Mapping):
+        for index, item in enumerate(value):
+            _check_value(item, schema["items"], f"{where}[{index}]")
+    if "oneOf" in schema:
+        matches = sum(_matches_schema(value, option, where) for option in schema["oneOf"])
+        if matches != 1:
+            raise TypeError(f"{where} must match exactly one schema in oneOf")
+
+
+def check_tool_arguments(tool: Mapping[str, Any], arguments: Mapping[str, Any]) -> None:
+    """Enforce a tool's inputSchema: required arguments, types, enums and oneOf."""
+
+    schema = tool.get("inputSchema", {})
+    missing = [name for name in schema.get("required", []) if name not in arguments]
+    if missing:
+        raise ValueError(f"missing required arguments: {', '.join(missing)}")
+    for name, spec in schema.get("properties", {}).items():
+        if name in arguments:
+            _check_value(arguments[name], spec, f"argument {name}")
+
+
+def render_prompt(prompt: Mapping[str, Any], arguments: Mapping[str, Any]) -> str:
+    """Fill the template in one pass, so argument values are never substituted again."""
+
+    declared = {argument["name"]: argument for argument in prompt.get("arguments", [])}
+    unknown = [name for name in arguments if name not in declared]
+    if unknown:
+        raise ValueError(f"unknown prompt arguments: {_shorten(', '.join(unknown))}")
+    missing = [
+        name
+        for name, argument in declared.items()
+        if argument.get("required") and name not in arguments
+    ]
+    if missing:
+        raise ValueError(f"missing required prompt arguments: {', '.join(missing)}")
+    for name, value in arguments.items():
+        if not isinstance(value, str):
+            raise TypeError(f"prompt argument {name} must be a string")
+    return PLACEHOLDER.sub(
+        lambda match: arguments.get(match.group(1), match.group(0)),
+        prompt.get("template", ""),
+    )
+
+
 def _validation_result(arguments: dict[str, Any]) -> dict[str, Any]:
     policy_value = arguments.get("policy")
     try:
@@ -206,6 +286,7 @@ def call_tool(contract: dict[str, Any], name: str, arguments: dict[str, Any]) ->
     )
     if configured is None:
         raise KeyError(name)
+    check_tool_arguments(configured, arguments)
     if name == "validate_policy_document":
         return _validation_result(arguments)
     if name == "list_builtin_operators":
@@ -239,7 +320,9 @@ def call_tool(contract: dict[str, Any], name: str, arguments: dict[str, Any]) ->
                 "text": (
                     f"{configured.get('title', name)} is available for AccessGate.\n\n"
                     f"Purpose: {configured.get('description', '')}\n\n"
-                    "Use the structured content to prepare a reviewed authorization design."
+                    "Use the structured content to prepare a reviewed authorization design. "
+                    "The tool returns this contract's guidance and your arguments; it does not "
+                    "run AccessGate, draft a policy, or generate code."
                 ),
             }
         ],
@@ -265,9 +348,7 @@ def list_prompts(contract: dict[str, Any]) -> dict[str, Any]:
 def get_prompt(contract: dict[str, Any], name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     for prompt in contract.get("prompts", []):
         if prompt.get("name") == name:
-            text = prompt.get("template", "")
-            for key, value in arguments.items():
-                text = text.replace("{" + key + "}", str(value))
+            text = render_prompt(prompt, arguments)
             return {
                 "description": prompt.get("description", ""),
                 "messages": [{"role": "user", "content": {"type": "text", "text": text}}],
@@ -353,9 +434,13 @@ def handle(message: object, contract: dict[str, Any]) -> dict[str, Any] | None:
                 get_prompt(contract, name, dict(arguments)),
             )
         else:
-            response = error(request_id, -32601, f"Method not found: {method}")
+            response = error(request_id, -32601, f"Method not found: {_shorten(method)}")
     except (KeyError, TypeError, ValueError) as request_error:
-        response = error(request_id, -32602, f"Unknown or invalid parameter: {request_error}")
+        response = error(
+            request_id,
+            -32602,
+            f"Unknown or invalid parameter: {_shorten(request_error)}",
+        )
     except Exception as internal_error:  # pragma: no cover - defensive protocol boundary
         response = error(
             request_id,
@@ -385,7 +470,7 @@ def main() -> None:
         try:
             message = parse_message(line)
         except (json.JSONDecodeError, RecursionError, TypeError, ValueError) as parse_error:
-            write_message(error(None, -32700, "Parse error", {"detail": str(parse_error)}))
+            write_message(error(None, -32700, "Parse error", {"detail": _shorten(parse_error)}))
             continue
         response = handle(message, contract)
         if response is not None:

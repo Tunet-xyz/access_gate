@@ -228,7 +228,7 @@
     {
       "name": "describe_offering",
       "title": "Describe AccessGate",
-      "description": "Explain AccessGate's authorization models, trust boundary, extension points, and secure defaults.",
+      "description": "Return AccessGate's offering summary, public access paths, and security rules for explaining its authorization models and secure defaults.",
       "executionMode": "contract",
       "inputSchema": {
         "type": "object",
@@ -242,7 +242,7 @@
     {
       "name": "list_authorization_models",
       "title": "List Authorization Models",
-      "description": "List RBAC, ABAC, relationship, composition, and customization APIs.",
+      "description": "Return AccessGate's offering summary, public Python APIs, and security rules an agent uses to choose RBAC, ABAC, relationship, composition, and customization APIs; the authorization-models resource lists those APIs.",
       "executionMode": "contract",
       "inputSchema": {
         "type": "object",
@@ -323,7 +323,7 @@
     {
       "name": "map_integration",
       "title": "Map An Integration",
-      "description": "Map a framework, identity source, resources, actions, context, audit sink, rollout, and verification plan.",
+      "description": "Return the public APIs, docs, and approval gates an agent uses to map a framework, identity source, resources, actions, context, audit sink, rollout, and verification plan.",
       "executionMode": "contract",
       "inputSchema": {
         "type": "object",
@@ -351,7 +351,7 @@
     {
       "name": "draft_policy",
       "title": "Draft Reviewed Policy",
-      "description": "Prepare a reviewed RBAC or ABAC policy design using synthetic attributes and explicit failure behavior.",
+      "description": "Return the guidance an agent uses to prepare a reviewed RBAC or ABAC policy design with synthetic attributes and explicit failure behavior.",
       "executionMode": "contract",
       "inputSchema": {
         "type": "object",
